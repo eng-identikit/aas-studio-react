@@ -3,7 +3,9 @@ import {
   Box,
   Button,
   Chip,
+  Collapse,
   FormControl,
+  FormLabel,
   IconButton,
   MenuItem,
   Paper,
@@ -18,22 +20,27 @@ import {
   AccountTreeRounded,
   AddRounded,
   CheckRounded,
+  CloseRounded,
   DeleteRounded,
+  EditRounded,
+  ErrorOutlineRounded,
   ExpandMoreRounded,
   FileDownloadRounded,
   CloudUploadRounded,
   FormatListBulletedRounded,
   HistoryRounded,
+  WarningAmberRounded,
 } from '@mui/icons-material';
 
 import VersionHistoryDrawer from './components/VersionHistoryDrawer';
 import GraphView from './components/GraphView';
 
-import { useAASContext, XsdValueType, AASModel } from '@/context/AASContext';
+import { useAASContext, XsdValueType, AASModel, validateAAS, ValidationResult } from '@/context/AASContext';
 import { useDialogContext } from '@/context/DialogContext';
 
 import ValidationDialog from './dialogs/ValidationDialog';
 import AddSubmodelDialog from './dialogs/AddSubmodelDialog';
+import AddEntityDialog from './dialogs/AddEntityDialog';
 import { buildAasEnvironment } from '@/utils/aas-builder';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -50,8 +57,9 @@ export default function AASEditor() {
     selectedModelId, setSelectedModelId,
     availableModels,
     currentModel, currentVersion,
+    createModel,
     updateCurrentModel,
-    addSubmodel, removeSubmodel, updateElement,
+    addSubmodel, removeSubmodel, updateSubmodel, updateElement,
     importAas, setSubmodels
   } = useAASContext();
 
@@ -66,15 +74,35 @@ export default function AASEditor() {
   const [showValidationDialog, setShowValidationDialog] = useState(false);
   const [initialValidationData, setInitialValidationData] = useState<Record<string, unknown> | null>(null);
   const [showHistory, setShowHistory] = useState(false);
+  const [showAddEntityDialog, setShowAddEntityDialog] = useState(false);
+  const [validationResult, setValidationResult] = useState<ValidationResult | null>(null);
+  const [editingSmIdx, setEditingSmIdx] = useState<Set<number>>(new Set());
 
-  // document_id signaling backend connection (placeholder)
-  const [versionDocumentId] = useState<number | null>(null);
+  const toggleEditSm = (idx: number) =>
+    setEditingSmIdx(prev => {
+      const next = new Set(prev);
+      next.has(idx) ? next.delete(idx) : next.add(idx);
+      return next;
+    });
 
-  const handleOpenValidation = useCallback(() => {
-    const env = buildAasEnvironment(aasIdShort, aasAssetId, aasDescription, currentModel.assetKind, submodels);
-    setInitialValidationData(env as unknown as Record<string, unknown>);
-    setShowValidationDialog(true);
-  }, [aasIdShort, aasAssetId, aasDescription, currentModel.assetKind, submodels]);
+  const versionDocumentId = currentModel.documentId ?? null;
+
+  const handleValidateInline = useCallback(() => {
+    const result = validateAAS({ idShort: aasIdShort, assetId: aasAssetId }, submodels);
+    setValidationResult(result);
+    if (!result.valid) {
+      const errorSmIndices = new Set(
+        result.errors
+          .map(f => f.path.match(/^SM\[(\d+)\]/)?.[1])
+          .filter((v): v is string => v !== undefined)
+      );
+      setExpandedSubmodels(prev => {
+        const next = new Set(prev);
+        submodels.forEach((sm, i) => { if (errorSmIndices.has(String(i))) next.add(sm.id); });
+        return next;
+      });
+    }
+  }, [aasIdShort, aasAssetId, submodels]);
 
   const handleExport = useCallback(() => {
     const env = buildAasEnvironment(aasIdShort, aasAssetId, aasDescription, currentModel.assetKind, submodels);
@@ -91,15 +119,13 @@ export default function AASEditor() {
   // Register secondary menu handlers
   useEffect(() => {
     setHandlers({
-      onValidateAAS: () => {
-        setInitialValidationData(null);
-        setShowValidationDialog(true);
-      },
+      onValidateAAS: handleValidateInline,
       onAddSubmodel: () => setShowAddDialog(true),
+      onAddEntity: () => setShowAddEntityDialog(true),
       onExportAASX: handleExport,
     });
     return () => setHandlers({});
-  }, [setHandlers, handleExport]);
+  }, [setHandlers, handleExport, handleValidateInline]);
 
   const toggleSubmodel = (id: string) => {
     setExpandedSubmodels(prev => {
@@ -162,12 +188,14 @@ export default function AASEditor() {
 
         <Button
           variant="contained"
-          color="success"
+          color={validationResult ? (validationResult.valid ? 'success' : 'error') : 'success'}
           size="small"
-          startIcon={<CheckRounded />}
-          onClick={handleOpenValidation}
+          startIcon={validationResult && !validationResult.valid ? <ErrorOutlineRounded /> : <CheckRounded />}
+          onClick={handleValidateInline}
         >
-          Validate
+          {validationResult
+            ? validationResult.valid ? 'Valido' : `${validationResult.errors.length} Errori`
+            : 'Validate'}
         </Button>
 
         <Button
@@ -223,27 +251,32 @@ export default function AASEditor() {
           </Typography>
           <Stack spacing={1.5}>
             {([
-              ['idShort', aasIdShort, (v: string) => updateCurrentModel({ idShort: v })],
-              ['globalAssetId', aasAssetId, (v: string) => updateCurrentModel({ assetId: v })],
-              ['description', aasDescription, (v: string) => updateCurrentModel({ description: v })],
-            ] as [string, string, (v: string) => void][]).map(([label, value, setter]) => (
-              <TextField
-                key={label}
-                label={label}
-                value={value}
-                onChange={(e) => setter(e.target.value)}
-                size="small"
-                multiline={label === 'description'}
-                rows={label === 'description' ? 2 : undefined}
-                inputProps={{ style: { fontFamily: 'monospace', fontSize: 11 } }}
-              />
+              ['idShort', aasIdShort, (v: string) => updateCurrentModel({ idShort: v }), false],
+              ['globalAssetId', aasAssetId, (v: string) => updateCurrentModel({ assetId: v }), false],
+              ['description', aasDescription, (v: string) => updateCurrentModel({ description: v }), true],
+            ] as [string, string, (v: string) => void, boolean][]).map(([label, value, setter, multiline]) => (
+              <Box key={label}>
+                <FormLabel sx={{ fontSize: 10, mb: 0.5, display: 'block' }}>{label}</FormLabel>
+                <TextField
+                  value={value}
+                  onChange={(e) => setter(e.target.value)}
+                  size="small"
+                  fullWidth
+                  multiline={multiline}
+                  rows={multiline ? 2 : undefined}
+                  inputProps={{ style: { fontFamily: 'monospace', fontSize: 11 } }}
+                />
+              </Box>
             ))}
-            <TextField
-              label="assetKind"
-              value={currentModel.assetKind}
-              size="small"
-              inputProps={{ readOnly: true, style: { fontFamily: 'monospace', fontSize: 11 } }}
-            />
+            <Box>
+              <FormLabel sx={{ fontSize: 10, mb: 0.5, display: 'block' }}>assetKind</FormLabel>
+              <TextField
+                value={currentModel.assetKind}
+                size="small"
+                fullWidth
+                inputProps={{ readOnly: true, style: { fontFamily: 'monospace', fontSize: 11 } }}
+              />
+            </Box>
           </Stack>
 
           <Paper variant="outlined" sx={{ mt: 2.5, p: 1.5 }}>
@@ -286,6 +319,41 @@ export default function AASEditor() {
             <GraphView aasId={aasIdShort} sms={submodels} />
           ) : (
             <>
+              {/* ── Validation summary bar ── */}
+              {validationResult && (
+                <Paper
+                  variant="outlined"
+                  sx={{
+                    mb: 2, px: 2, py: 1.25, display: 'flex', alignItems: 'center', gap: 1.5,
+                    borderColor: validationResult.valid ? 'success.main' : 'error.main',
+                    bgcolor: validationResult.valid ? 'rgba(16,185,129,.06)' : 'rgba(239,68,68,.06)',
+                  }}
+                >
+                  {validationResult.valid
+                    ? <CheckRounded sx={{ color: 'success.main', fontSize: 18 }} />
+                    : <ErrorOutlineRounded sx={{ color: 'error.main', fontSize: 18 }} />}
+                  <Box flex={1}>
+                    {validationResult.valid ? (
+                      <Typography variant="body2" color="success.main" fontWeight={600}>Modello conforme agli standard IDTA</Typography>
+                    ) : (
+                      <Stack direction="row" spacing={1.5} alignItems="center">
+                        <Typography variant="body2" color="error.main" fontWeight={600}>
+                          {validationResult.errors.length} {validationResult.errors.length === 1 ? 'errore' : 'errori'}
+                        </Typography>
+                        {validationResult.warnings.length > 0 && (
+                          <Typography variant="body2" color="warning.main" fontWeight={600}>
+                            {validationResult.warnings.length} {validationResult.warnings.length === 1 ? 'avviso' : 'avvisi'}
+                          </Typography>
+                        )}
+                      </Stack>
+                    )}
+                  </Box>
+                  <IconButton size="small" onClick={() => setValidationResult(null)} sx={{ color: 'text.disabled' }}>
+                    <CloseRounded sx={{ fontSize: 16 }} />
+                  </IconButton>
+                </Paper>
+              )}
+
               {!submodels.length && !dragOver && (
                 <Stack alignItems="center" justifyContent="center" height="100%" spacing={0.75}>
                   <Typography fontSize={36}>🟩</Typography>
@@ -294,10 +362,23 @@ export default function AASEditor() {
                 </Stack>
               )}
 
-              {submodels.map(sm => {
+              {submodels.map((sm, idx) => {
                 const isOpen = expandedSubmodels.has(sm.id);
+                const isEditing = editingSmIdx.has(idx);
+                const smPrefix = `SM[${idx}]`;
+                const smErrors = validationResult?.errors.filter(f => f.path.startsWith(smPrefix)) ?? [];
+                const smWarnings = validationResult?.warnings.filter(f => f.path.startsWith(smPrefix)) ?? [];
                 return (
-                  <Paper key={sm.id} variant="outlined" sx={{ mb: 1.5, overflow: 'hidden' }}>
+                  <Paper
+                    key={sm.id}
+                    variant="outlined"
+                    sx={{
+                      mb: 1.5,
+                      overflow: 'hidden',
+                      ...(smErrors.length > 0 && { borderColor: 'error.main', borderLeftWidth: 3 }),
+                      ...(smErrors.length === 0 && smWarnings.length > 0 && { borderColor: 'warning.main', borderLeftWidth: 3 }),
+                    }}
+                  >
                     {/* Submodel header */}
                     <Stack
                       direction="row"
@@ -306,7 +387,7 @@ export default function AASEditor() {
                       sx={{
                         px: 2.25, py: 1.75,
                         cursor: 'pointer',
-                        borderBottom: isOpen ? 1 : 0,
+                        borderBottom: isOpen || isEditing ? 1 : 0,
                         borderColor: 'divider',
                       }}
                       onClick={() => toggleSubmodel(sm.id)}
@@ -315,7 +396,7 @@ export default function AASEditor() {
                       <Box flex={1} minWidth={0}>
                         <Typography variant="body2" fontWeight={600} noWrap>{sm.idShort}</Typography>
                         <Typography variant="caption" color="text.disabled" fontFamily="monospace" display="block" noWrap>
-                          {sm.semanticId}
+                          {sm.id}
                         </Typography>
                       </Box>
                       <Chip
@@ -325,6 +406,19 @@ export default function AASEditor() {
                         variant="outlined"
                         sx={{ fontFamily: 'monospace', fontSize: 10 }}
                       />
+                      {smErrors.length > 0 && (
+                        <Chip size="small" icon={<ErrorOutlineRounded />} label={smErrors.length} color="error" sx={{ fontSize: 10, height: 22 }} />
+                      )}
+                      {smWarnings.length > 0 && (
+                        <Chip size="small" icon={<WarningAmberRounded />} label={smWarnings.length} color="warning" sx={{ fontSize: 10, height: 22 }} />
+                      )}
+                      <IconButton
+                        size="small"
+                        onClick={(e) => { e.stopPropagation(); toggleEditSm(idx); }}
+                        sx={{ color: isEditing ? 'primary.main' : 'text.disabled' }}
+                      >
+                        <EditRounded sx={{ fontSize: 15 }} />
+                      </IconButton>
                       <IconButton
                         size="small"
                         onClick={(e) => { e.stopPropagation(); removeSubmodel(sm.id); }}
@@ -342,6 +436,55 @@ export default function AASEditor() {
                       />
                     </Stack>
 
+                    {/* Submodel identity edit */}
+                    <Collapse in={isEditing}>
+                      <Box sx={{ px: 2.25, py: 1.75, borderBottom: isOpen ? 1 : 0, borderColor: 'divider', bgcolor: 'action.hover' }}>
+                        <Stack spacing={1.25}>
+                          <Stack direction="row" spacing={1.25}>
+                            <Box sx={{ flex: 1 }}>
+                              <FormLabel sx={{ fontSize: 10, mb: 0.5, display: 'block' }}>idShort</FormLabel>
+                              <TextField
+                                size="small"
+                                fullWidth
+                                value={sm.idShort}
+                                onChange={(e) => updateSubmodel(sm.id, { idShort: e.target.value })}
+                                inputProps={{ style: { fontFamily: 'monospace', fontSize: 11 } }}
+                              />
+                            </Box>
+                            <Box sx={{ flex: 2 }}>
+                              <FormLabel sx={{ fontSize: 10, mb: 0.5, display: 'block' }}>id (AAS instance IRI)</FormLabel>
+                              <TextField
+                                size="small"
+                                fullWidth
+                                value={sm.id}
+                                onChange={(e) => updateSubmodel(sm.id, { id: e.target.value })}
+                                inputProps={{ style: { fontFamily: 'monospace', fontSize: 11 } }}
+                              />
+                            </Box>
+                          </Stack>
+                          <Box>
+                            <FormLabel sx={{ fontSize: 10, mb: 0.5, display: 'block' }}>semanticId</FormLabel>
+                            <TextField
+                              size="small"
+                              fullWidth
+                              value={sm.semanticId}
+                              onChange={(e) => updateSubmodel(sm.id, { semanticId: e.target.value })}
+                              inputProps={{ style: { fontFamily: 'monospace', fontSize: 11 } }}
+                            />
+                          </Box>
+                          <Box>
+                            <FormLabel sx={{ fontSize: 10, mb: 0.5, display: 'block' }}>Descrizione</FormLabel>
+                            <TextField
+                              size="small"
+                              fullWidth
+                              value={sm.description}
+                              onChange={(e) => updateSubmodel(sm.id, { description: e.target.value })}
+                            />
+                          </Box>
+                        </Stack>
+                      </Box>
+                    </Collapse>
+
                     {/* Elements */}
                     {isOpen && (
                       <Box sx={{ p: 1.5 }}>
@@ -349,8 +492,23 @@ export default function AASEditor() {
                           const typeColor: 'default' | 'warning' | 'info' =
                             el.type === 'SubmodelElementCollection' ? 'warning' :
                             el.type === 'Operation' ? 'info' : 'default';
+                          const elErrors = validationResult?.errors.filter(
+                            f => f.path.startsWith(smPrefix) && f.path.includes(`→ ${el.idShort}`)
+                          ) ?? [];
+                          const elWarnings = validationResult?.warnings.filter(
+                            f => f.path.startsWith(smPrefix) && f.path.includes(`→ ${el.idShort}`)
+                          ) ?? [];
                           return (
-                            <Paper key={ei} variant="outlined" sx={{ p: 1.5, mb: 0.75 }}>
+                            <Paper
+                              key={ei}
+                              variant="outlined"
+                              sx={{
+                                p: 1.5,
+                                mb: 0.75,
+                                ...(elErrors.length > 0 && { borderColor: 'error.main', bgcolor: 'rgba(239,68,68,.04)' }),
+                                ...(elErrors.length === 0 && elWarnings.length > 0 && { borderColor: 'warning.main', bgcolor: 'rgba(245,158,11,.04)' }),
+                              }}
+                            >
                               <Stack direction="row" alignItems="center" spacing={1} mb={el.type === 'Property' ? 1 : 0}>
                                 <Chip
                                   size="small"
@@ -399,17 +557,61 @@ export default function AASEditor() {
                                 </Stack>
                               )}
 
+                              {el.type === 'MultiLanguageProperty' && (
+                                <Stack spacing={0.75} mt={0.5}>
+                                  {(['en', 'it', 'de'] as const).map(lang => {
+                                    const mlv = typeof el.value === 'object' && el.value !== null ? el.value as Record<string, string> : {};
+                                    return (
+                                      <Stack key={lang} direction="row" alignItems="center" spacing={0.75}>
+                                        <Typography variant="caption" fontFamily="monospace" color="text.disabled" sx={{ width: 20, flexShrink: 0 }}>{lang}</Typography>
+                                        <TextField
+                                          size="small"
+                                          fullWidth
+                                          value={mlv[lang] || ''}
+                                          onChange={(e) => updateElement(sm.id, ei, 'value', { ...mlv, [lang]: e.target.value })}
+                                          placeholder={`testo (${lang})…`}
+                                          inputProps={{ style: { fontSize: 10 } }}
+                                        />
+                                      </Stack>
+                                    );
+                                  })}
+                                </Stack>
+                              )}
+
                               {el.type === 'SubmodelElementCollection' && el.children && (
                                 <Box sx={{ mt: 0.75, pl: 1.5, borderLeft: '2px solid', borderColor: 'divider' }}>
                                   {el.children.map((ch, ci) => (
-                                    <Typography key={ci} variant="caption" fontFamily="monospace" color="text.disabled" display="block" py={0.25}>
-                                      <Box component="span" color="text.secondary">{ch.idShort}</Box>
-                                      {' : '}{ch.type}
-                                      {ch.required && <Box component="span" color="error.main"> *</Box>}
-                                    </Typography>
+                                    <Stack key={ci} direction="row" alignItems="center" spacing={0.75} py={0.4}>
+                                      <Typography variant="caption" fontFamily="monospace" color="text.secondary" sx={{ width: 130, flexShrink: 0 }}>
+                                        {ch.idShort}
+                                        {ch.required && <Box component="span" color="error.main"> *</Box>}
+                                        <Box component="span" color="text.disabled"> : {ch.type}</Box>
+                                      </Typography>
+                                      {ch.type === 'Property' && (
+                                        <TextField
+                                          size="small"
+                                          fullWidth
+                                          placeholder={ch.valueType ? `(${ch.valueType})` : 'valore…'}
+                                          inputProps={{ style: { fontFamily: 'monospace', fontSize: 10 } }}
+                                        />
+                                      )}
+                                    </Stack>
                                   ))}
                                 </Box>
                               )}
+
+                              {elErrors.map((f, fi) => (
+                                <Stack key={fi} direction="row" alignItems="center" spacing={0.5} mt={0.75}>
+                                  <ErrorOutlineRounded sx={{ fontSize: 13, color: 'error.main', flexShrink: 0 }} />
+                                  <Typography variant="caption" color="error.main" fontFamily="monospace">{f.msg}</Typography>
+                                </Stack>
+                              ))}
+                              {elWarnings.map((f, fi) => (
+                                <Stack key={fi} direction="row" alignItems="center" spacing={0.5} mt={0.75}>
+                                  <WarningAmberRounded sx={{ fontSize: 13, color: 'warning.main', flexShrink: 0 }} />
+                                  <Typography variant="caption" color="warning.main" fontFamily="monospace">{f.msg}</Typography>
+                                </Stack>
+                              ))}
                             </Paper>
                           );
                         })}
@@ -439,6 +641,7 @@ export default function AASEditor() {
       </Box>
 
       <AddSubmodelDialog open={showAddDialog} onClose={() => setShowAddDialog(false)} onAdd={addSubmodel} />
+      <AddEntityDialog open={showAddEntityDialog} onClose={() => setShowAddEntityDialog(false)} onAdd={createModel} />
       
       <ValidationDialog 
         open={showValidationDialog} 
@@ -481,6 +684,13 @@ export default function AASEditor() {
         onClose={() => setShowHistory(false)}
         documentId={versionDocumentId}
         submodels={submodels}
+        modelData={{
+          idShort: aasIdShort,
+          assetId: aasAssetId,
+          assetKind: currentModel.assetKind,
+          description: aasDescription,
+        }}
+        onDocumentCreated={(id) => updateCurrentModel({ documentId: id })}
         onCheckoutContent={(content) => {
           if (Array.isArray(content?.submodels)) {
             setSubmodels(content.submodels);

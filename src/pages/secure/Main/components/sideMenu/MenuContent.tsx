@@ -15,7 +15,6 @@ import {
   HelpRounded,
   CheckCircleOutlineRounded,
   AddBoxRounded,
-  FileDownloadRounded,
   AutoFixHighRounded,
   CodeRounded,
   HistoryRounded,
@@ -112,24 +111,14 @@ export default function MenuContent({ collapsed, onItemClick }: { collapsed: boo
           action: () => handlers.onValidateAAS?.(),
         },
         {
-          text: 'addSubmodel',
+          text: 'addEntity',
           icon: (
-            <Tooltip title={t('sideMenu.menuContent.toolTips.addSubmodel', 'Aggiungi Submodel')} arrow>
+            <Tooltip title={t('sideMenu.menuContent.toolTips.addEntity', 'Nuova Entità AAS')} arrow>
               <AddBoxRounded />
             </Tooltip>
           ),
           path: null,
-          action: () => handlers.onAddSubmodel?.(),
-        },
-        {
-          text: 'exportAASX',
-          icon: (
-            <Tooltip title={t('sideMenu.menuContent.toolTips.exportAASX', 'Esporta AASX')} arrow>
-              <FileDownloadRounded />
-            </Tooltip>
-          ),
-          path: null,
-          action: () => handlers.onExportAASX?.(),
+          action: () => handlers.onAddEntity?.(),
         },
       ];
     }
@@ -278,9 +267,9 @@ export default function MenuContent({ collapsed, onItemClick }: { collapsed: boo
   return (
     <Stack sx={{ flexGrow: 1, p: 1 }}>
       {renderGroup(mainListItems, 'main')}
-      <Divider />
-      {renderGroup(secondaryListItems, 'secondary')}
       <Box sx={{ flexGrow: 1 }} />
+      {secondaryListItems.length > 0 && <Divider />}
+      {renderGroup(secondaryListItems, 'secondary')}
     </Stack>
   );
 }

@@ -191,16 +191,25 @@ function CommitRow({
 
 // ── Main Drawer ───────────────────────────────────────────────────────────────
 
+interface ModelData {
+  idShort: string;
+  assetId: string;
+  assetKind: 'Instance' | 'Type';
+  description: string;
+}
+
 interface VersionHistoryDrawerProps {
   open: boolean;
   onClose: () => void;
   documentId: number | null;
   submodels: SubmodelTemplate[];
+  modelData: ModelData;
   onCheckoutContent: (content: any) => void;
+  onDocumentCreated: (id: number) => void;
 }
 
 export default function VersionHistoryDrawer({
-  open, onClose, documentId, submodels, onCheckoutContent,
+  open, onClose, documentId, submodels, modelData, onCheckoutContent, onDocumentCreated,
 }: VersionHistoryDrawerProps) {
   const versioning = useAASVersioning();
 
@@ -287,11 +296,37 @@ export default function VersionHistoryDrawer({
   };
 
   const handleCommit = async () => {
-    if (!documentId || !commitMsg.trim()) return;
+    if (!commitMsg.trim()) return;
     setActionLoading(true);
+    setError(null);
     try {
+      let docId = documentId;
+
+      if (!docId) {
+        const aasId = `urn:aas-studio:${modelData.idShort.toLowerCase().replace(/[^a-z0-9]+/g, '-')}:${Date.now()}`;
+        const createRes = await versioning.createDocument({
+          id_short: modelData.idShort,
+          aas_id: aasId,
+          asset_id: modelData.assetId,
+          asset_kind: modelData.assetKind,
+          description: modelData.description,
+          message: commitMsg.trim(),
+          content: { submodels },
+        });
+        if (createRes.status !== 'Success') {
+          setError(createRes.message);
+          return;
+        }
+        docId = createRes.data.document.document_id;
+        onDocumentCreated(docId);
+        setCommitMsg('');
+        setShowCommitForm(false);
+        await loadData();
+        return;
+      }
+
       const content = { submodels };
-      const res = await versioning.commitSubmodel(documentId, {
+      const res = await versioning.commitSubmodel(docId, {
         message: commitMsg.trim(),
         content,
         ref: selectedRef === 'ALL' ? 'HEAD' : selectedRef,
@@ -529,6 +564,13 @@ export default function VersionHistoryDrawer({
         {loading && !commits.length ? (
           <Stack alignItems="center" justifyContent="center" height={120}>
             <CircularProgress size={24} />
+          </Stack>
+        ) : !documentId && commits.length === 0 ? (
+          <Stack alignItems="center" justifyContent="center" height={120} spacing={1} px={2}>
+            <HistoryRounded sx={{ fontSize: 32, color: 'text.disabled' }} />
+            <Typography variant="caption" color="text.disabled" textAlign="center">
+              Nessun documento collegato al backend. Usa <strong>Commit</strong> per creare il primo snapshot.
+            </Typography>
           </Stack>
         ) : commits.length === 0 ? (
           <Stack alignItems="center" justifyContent="center" height={120} spacing={0.5}>

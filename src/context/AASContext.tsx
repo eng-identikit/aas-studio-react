@@ -56,6 +56,7 @@ export interface AASModel {
   versions: AASVersion[];
   submodels: SubmodelTemplate[];
   isImported?: boolean;
+  documentId?: number;
 }
 
 export interface SubmodelElementChild {
@@ -237,8 +238,8 @@ export const MOCK_AAS_DB: AASModel[] = [
       },
     ],
     submodels: [
-      { ...SM_CATALOG[0], elements: SM_CATALOG[0].elements.map(e => ({ ...e, value: '' })) },
-      { ...SM_CATALOG[2], elements: SM_CATALOG[2].elements.map(e => ({ ...e, value: '' })) },
+      { ...SM_CATALOG[0], id: `${SM_CATALOG[0].semanticId}:inst:aas-pump-001`, elements: SM_CATALOG[0].elements.map(e => ({ ...e, value: e.type === 'MultiLanguageProperty' ? {} : '' })) },
+      { ...SM_CATALOG[2], id: `${SM_CATALOG[2].semanticId}:inst:aas-pump-001`, elements: SM_CATALOG[2].elements.map(e => ({ ...e, value: '' })) },
     ],
   },
   {
@@ -259,8 +260,8 @@ export const MOCK_AAS_DB: AASModel[] = [
       },
     ],
     submodels: [
-      { ...SM_CATALOG[0], elements: SM_CATALOG[0].elements.map(e => ({ ...e, value: '' })) },
-      { ...SM_CATALOG[4], elements: SM_CATALOG[4].elements.map(e => ({ ...e, value: '' })) },
+      { ...SM_CATALOG[0], id: `${SM_CATALOG[0].semanticId}:inst:aas-robot-002`, elements: SM_CATALOG[0].elements.map(e => ({ ...e, value: e.type === 'MultiLanguageProperty' ? {} : '' })) },
+      { ...SM_CATALOG[4], id: `${SM_CATALOG[4].semanticId}:inst:aas-robot-002`, elements: SM_CATALOG[4].elements.map(e => ({ ...e, value: '' })) },
     ],
   },
   {
@@ -281,8 +282,8 @@ export const MOCK_AAS_DB: AASModel[] = [
       },
     ],
     submodels: [
-      { ...SM_CATALOG[0], elements: SM_CATALOG[0].elements.map(e => ({ ...e, value: '' })) },
-      { ...SM_CATALOG[2], elements: SM_CATALOG[2].elements.map(e => ({ ...e, value: '' })) },
+      { ...SM_CATALOG[0], id: `${SM_CATALOG[0].semanticId}:inst:aas-sensor-003`, elements: SM_CATALOG[0].elements.map(e => ({ ...e, value: e.type === 'MultiLanguageProperty' ? {} : '' })) },
+      { ...SM_CATALOG[2], id: `${SM_CATALOG[2].semanticId}:inst:aas-sensor-003`, elements: SM_CATALOG[2].elements.map(e => ({ ...e, value: '' })) },
     ],
   },
   {
@@ -304,8 +305,8 @@ export const MOCK_AAS_DB: AASModel[] = [
       },
     ],
     submodels: [
-      { ...SM_CATALOG[0], elements: SM_CATALOG[0].elements.map(e => ({ ...e, value: '' })) },
-      { ...SM_CATALOG[7], elements: SM_CATALOG[7].elements.map(e => ({ ...e, value: '' })) },
+      { ...SM_CATALOG[0], id: `${SM_CATALOG[0].semanticId}:inst:aas-conveyor-004`, elements: SM_CATALOG[0].elements.map(e => ({ ...e, value: e.type === 'MultiLanguageProperty' ? {} : '' })) },
+      { ...SM_CATALOG[7], id: `${SM_CATALOG[7].semanticId}:inst:aas-conveyor-004`, elements: SM_CATALOG[7].elements.map(e => ({ ...e, value: '' })) },
     ],
   },
 ];
@@ -370,7 +371,11 @@ export function validateAAS(
         }
       }
       if (!el.semanticId) addFinding(infos, ep, 'semanticId mancante', 'EI001');
-      if (el.required && (el.value === undefined || el.value === '')) addFinding(errors, ep, 'Campo required vuoto', 'EL-008');
+      if (el.required && el.type !== 'SubmodelElementCollection') {
+        const isEmpty = el.value === undefined || el.value === ''
+          || (typeof el.value === 'object' && Object.keys(el.value).length === 0);
+        if (isEmpty) addFinding(errors, ep, 'Campo required vuoto', 'EL-008');
+      }
     });
   });
 
@@ -387,10 +392,12 @@ interface AASContextType {
   availableModels: AASModel[];
   currentModel: AASModel;
   currentVersion: AASVersion;
+  createModel: (data: { idShort: string; assetId: string; description: string; assetKind: AssetKind }) => void;
   updateCurrentModel: (patch: Partial<AASModel>) => void;
   addSubmodel: (sm: SubmodelTemplate) => void;
   removeSubmodel: (id: string) => void;
-  updateElement: (smId: string, elIdx: number, field: string, value: string) => void;
+  updateSubmodel: (smId: string, patch: Partial<SubmodelTemplate>) => void;
+  updateElement: (smId: string, elIdx: number, field: string, value: string | Record<string, string>) => void;
   importAas: (model: AASModel) => void;
   setSubmodels: (sms: SubmodelTemplate[]) => void; // Added back for VersionHistory compatibility
 }
@@ -417,6 +424,21 @@ export function AASProvider({ children }: { children: ReactNode }) {
     author: 'System', changes: 'Model state', details: []
   };
 
+  const createModel = useCallback((data: { idShort: string; assetId: string; description: string; assetKind: AssetKind }) => {
+    const id = `aas-${data.idShort.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${Date.now()}`;
+    const newModel: AASModel = {
+      id,
+      idShort: data.idShort,
+      assetId: data.assetId,
+      description: data.description,
+      assetKind: data.assetKind,
+      versions: [{ version: '1.0.0', revision: 'A', date: new Date().toISOString(), status: 'Draft', author: 'User', changes: 'Initial creation', details: [] }],
+      submodels: [],
+    };
+    setAvailableModels(prev => [...prev, newModel]);
+    setSelectedModelId(id);
+  }, []);
+
   const updateCurrentModel = useCallback((patch: Partial<AASModel>) => {
     setAvailableModels(prev => prev.map(m => 
       m.id === selectedModelId ? { ...m, ...patch } : m
@@ -439,7 +461,14 @@ export function AASProvider({ children }: { children: ReactNode }) {
     ));
   }, [selectedModelId]);
 
-  const updateElement = useCallback((smId: string, elIdx: number, field: string, value: string) => {
+  const updateSubmodel = useCallback((smId: string, patch: Partial<SubmodelTemplate>) => {
+    setAvailableModels(prev => prev.map(m => {
+      if (m.id !== selectedModelId) return m;
+      return { ...m, submodels: m.submodels.map(s => s.id === smId ? { ...s, ...patch } : s) };
+    }));
+  }, [selectedModelId]);
+
+  const updateElement = useCallback((smId: string, elIdx: number, field: string, value: string | Record<string, string>) => {
     setAvailableModels(prev => prev.map(m => {
       if (m.id !== selectedModelId) return m;
       return {
@@ -472,9 +501,11 @@ export function AASProvider({ children }: { children: ReactNode }) {
         availableModels,
         currentModel,
         currentVersion,
+        createModel,
         updateCurrentModel,
         addSubmodel,
         removeSubmodel,
+        updateSubmodel,
         updateElement,
         importAas,
         setSubmodels,

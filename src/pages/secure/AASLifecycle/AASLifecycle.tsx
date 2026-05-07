@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import {
   Avatar,
   Box,
@@ -80,7 +80,7 @@ export default function AASLifecycle() {
 
   const allChanges = currentModel.versions.flatMap(v => v.details || []);
 
-  const exportChangelog = () => {
+  const exportChangelog = useCallback(() => {
     const lines: string[] = [`# Changelog — ${currentModel.idShort}`, `assetId: ${currentModel.assetId}`, ''];
     currentModel.versions.forEach(v => {
       lines.push(`## v${v.version} rev ${v.revision} (${v.status}) — ${new Date(v.date).toLocaleDateString('it-IT')}`);
@@ -100,13 +100,13 @@ export default function AASLifecycle() {
     a.download = `changelog-${currentModel.idShort}.md`;
     a.click();
     URL.revokeObjectURL(url);
-  };
+  }, [currentModel]);
 
   // Register sidebar handler
-  useState(() => {
+  useEffect(() => {
     setHandlers({ onExportChangelog: exportChangelog });
     return () => setHandlers({});
-  });
+  }, [exportChangelog, setHandlers]);
 
   const latestVersion = currentModel.versions[0];
 

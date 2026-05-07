@@ -7,6 +7,7 @@ interface DialogHandlers {
   // AAS Editor
   onValidateAAS?: () => void;
   onAddSubmodel?: () => void;
+  onAddEntity?: () => void;
   onExportAASX?: () => void;
   // AAS Lifecycle
   onExportChangelog?: () => void;

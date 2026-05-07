@@ -129,6 +129,7 @@ export default function AddSubmodelDialog({ open, onClose, onAdd }: AddSubmodelD
       if (template) {
         onAdd({
           ...template,
+          id: `${template.semanticId}:inst:${Date.now()}`,
           elements: template.elements.map((e) => ({
             ...e,
             value: e.type === 'MultiLanguageProperty' ? {} : '',
