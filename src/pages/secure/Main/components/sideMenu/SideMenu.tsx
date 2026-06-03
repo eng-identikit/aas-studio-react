@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { styled, Box, CssBaseline, Divider, IconButton, Tooltip, CSSObject, Theme } from '@mui/material';
+import { useColorScheme } from '@mui/material/styles';
 import { MenuOpenRounded, MenuRounded } from '@mui/icons-material';
 import { drawerClasses } from '@mui/material/Drawer';
 import MuiDrawer from '@mui/material/Drawer';
@@ -59,6 +60,8 @@ const Drawer = styled(MuiDrawer, {
 export default function SideMenu() {
   const [open, setOpen] = useState(true);
   const { t } = useTranslation();
+  const { colorScheme } = useColorScheme();
+  const logoSrc = colorScheme === 'dark' ? '/logo_white.png' : '/logo_dark.png';
 
   const toggleDrawer = () => {
     setOpen(prev => !prev);
@@ -88,13 +91,13 @@ export default function SideMenu() {
                 p: 1.5,
                 overflow: 'hidden'
               }}>
-              <Box component="img" src="/logo.png" alt="Logo"
+              <Box component="img" src={logoSrc} alt="Logo"
                 sx={{
                   width: '10rem',
                   objectFit: 'contain',
-                  transform: open ? 'translateX(0)' : 'translateX(-100%)', // Sposta il logo a sinistra
-                  opacity: open ? 1 : 0, // Nasconde il logo quando il menu è collassato
-                  transition: 'transform 0.3s ease, opacity 0.3s ease', // Transizione fluida
+                  transform: open ? 'translateX(0)' : 'translateX(-100%)',
+                  opacity: open ? 1 : 0,
+                  transition: 'transform 0.3s ease, opacity 0.3s ease',
                 }} />
             </Box>
           )}
@@ -118,23 +121,6 @@ export default function SideMenu() {
           </IconButton>
         </DrawerHeader>
 
-        {!open && (
-          <Box 
-            sx={{
-              display: 'flex',
-              justifyContent: "center",
-              alignItems: "center",
-              pb: 2
-            }}>
-            <Box component="img" src="/logo_collapsed.png" alt="Logo"
-              sx={{
-                width: '3.0rem',
-                objectFit: 'contain',
-                transition: 'transform 0.3s ease',
-                transform: !open ? 'translateY(0)' : 'translateY(-100%)',
-              }} />
-          </Box>
-        )}
 
         <Divider />
 

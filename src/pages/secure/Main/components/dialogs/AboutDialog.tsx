@@ -1,5 +1,6 @@
 import { Dialog, DialogTitle, DialogContent, DialogActions, Button, IconButton, Grow, Box, Typography, Divider, Chip, useTheme, useMediaQuery } from '@mui/material';
 import { CloseRounded, AutoAwesomeRounded, EmojiEventsRounded, TrendingUpRounded, GroupsRounded } from '@mui/icons-material';
+import { useColorScheme } from '@mui/material/styles';
 import { useTranslation } from 'react-i18next';
 
 interface AboutDialogProps {
@@ -11,6 +12,8 @@ export default function AboutDialog({ open, onClose }: AboutDialogProps) {
   const { t } = useTranslation();
   const theme = useTheme();
   const fullScreen = useMediaQuery(theme.breakpoints.down('sm'));
+  const { colorScheme } = useColorScheme();
+  const logoSrc = colorScheme === 'dark' ? '/logo_white.png' : '/logo_dark.png';
 
   if (!open) return null;
 
@@ -49,7 +52,7 @@ export default function AboutDialog({ open, onClose }: AboutDialogProps) {
         >
           <Box
             component="img"
-            src="/logo.png"
+            src={logoSrc}
             alt="AAS Studio"
             sx={{ height: 48, mb: 1, objectFit: 'contain' }}
           />

@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 
 import { Box, Button, Checkbox, CssBaseline, FormControlLabel, FormLabel, FormControl, Link, TextField, Typography, Stack, Card as MuiCard, InputAdornment, IconButton } from '@mui/material';
 import { VisibilityRounded, VisibilityOffRounded } from '@mui/icons-material';
-import { styled } from '@mui/material/styles';
+import { styled, useColorScheme } from '@mui/material/styles';
 
 import ColorModeSelect from '@/pages/public/SignIn/components/ColorModeSelect';
 import ForgotPassword from '@/pages/public/SignIn/components/ForgotPassword';
@@ -64,6 +64,8 @@ const SignInContainer = styled(Stack)(({ theme }: { theme: any }) => ({
 }));
 
 export default function SignIn(props: { disableCustomTheme?: boolean }) {
+  const { colorScheme } = useColorScheme();
+  const logoSrc = colorScheme === 'dark' ? '/logo_white.png' : '/logo_dark.png';
   const [emailError, setEmailError] = useState(false);
   const [emailErrorMessage, setEmailErrorMessage] = useState('');
   const [passwordError, setPasswordError] = useState(false);
@@ -176,7 +178,7 @@ export default function SignIn(props: { disableCustomTheme?: boolean }) {
       <SignInContainer direction="column" justifyContent="space-between">
         <ColorModeSelect sx={{ position: 'fixed', top: '1rem', right: '1rem' }} />
         <Card variant="outlined">
-          <Box component="img" src="/logo.png" alt="Logo"
+          <Box component="img" src={logoSrc} alt="Logo"
             sx={{
               display: 'flex',
               justifyContent: 'left',

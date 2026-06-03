@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { AppBar, Box, Stack, Toolbar } from '@mui/material';
 import { MenuRounded } from '@mui/icons-material';
-import { styled } from '@mui/material/styles';
+import { styled, useColorScheme } from '@mui/material/styles';
 
 import MenuButton from '@/pages/secure/Main/components/header/MenuButton';
 import SideMenuMobile from '@/pages/secure/Main/components/sideMenu/SideMenuMobile';
@@ -21,6 +21,8 @@ const MuiToolbar = styled(Toolbar)({
 
 export default function NavbarMobile() {
   const [open, setOpen] = useState(false);
+  const { colorScheme } = useColorScheme();
+  const logoSrc = colorScheme === 'dark' ? '/logo_white.png' : '/logo_dark.png';
 
   const toggleDrawer = () => {
     setOpen((prev) => !prev);
@@ -56,7 +58,7 @@ export default function NavbarMobile() {
           >
             <Box
               component="img"
-              src="/logo.png"
+              src={logoSrc}
               alt="Logo"
               sx={{
                 width: '10rem',
