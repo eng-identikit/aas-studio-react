@@ -51,6 +51,8 @@ import { useCustomSnackbar } from '@/context/SnackbarContext';
 import ValidationDialog from './dialogs/ValidationDialog';
 import AddSubmodelDialog from './dialogs/AddSubmodelDialog';
 import AddEntityDialog from './dialogs/AddEntityDialog';
+import CommitDialog from './dialogs/CommitDialog';
+import type { CommitStatus } from '@/hooks/useAASVersioning';
 import { buildAasEnvironment } from '@/utils/aas-builder';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -71,7 +73,7 @@ export default function AASEditor() {
     updateCurrentModel,
     updateVersionStatus,
     addSubmodel, removeSubmodel, updateSubmodel, updateElement,
-    importAas, setSubmodels
+    importAas, setSubmodels, refreshModels
   } = useAASContext();
 
   if (!currentModel) return null;
@@ -92,6 +94,7 @@ export default function AASEditor() {
   const [initialValidationData, setInitialValidationData] = useState<Record<string, unknown> | null>(null);
   const [showHistory, setShowHistory] = useState(false);
   const [showAddEntityDialog, setShowAddEntityDialog] = useState(false);
+  const [showCommitDialog, setShowCommitDialog] = useState(false);
   const [validationResult, setValidationResult] = useState<ValidationResult | null>(null);
   const [editingSmIdx, setEditingSmIdx] = useState<Set<number>>(new Set());
 
@@ -144,42 +147,57 @@ export default function AASEditor() {
     return () => setHandlers({});
   }, [setHandlers, handleExport, handleValidateInline]);
 
-  const handleSaveToServer = useCallback(async () => {
+  const handleSaveToServer = useCallback(async (
+    message: string, version: string, revision: string, status: CommitStatus
+  ) => {
     setIsSaving(true);
+    setShowCommitDialog(false);
     try {
       const content = { submodels, idShort: aasIdShort, assetId: aasAssetId, description: aasDescription };
 
       if (!currentModel.documentId) {
-        // Prima volta: crea il documento sul DB
         const res = await createDocument({
           id_short: aasIdShort,
           aas_id: currentModel.id,
           asset_id: aasAssetId,
           asset_kind: currentModel.assetKind,
           description: aasDescription,
-          message: 'Initial commit',
+          message,
+          version,
+          revision,
           content,
         });
+        if (res.status !== 'Success') {
+          showSnackbar(res.message || 'Errore durante il salvataggio', 'error');
+          return;
+        }
         const docId = res.data?.document?.document_id;
         if (docId) {
           updateCurrentModel({ documentId: docId });
+          await refreshModels();
           showSnackbar('AAS salvato sul server', 'success');
         }
       } else {
-        // Commit successivo
-        await commitSubmodel(currentModel.documentId, {
-          message: `Update ${aasIdShort} — ${new Date().toLocaleString('it-IT')}`,
+        const res = await commitSubmodel(currentModel.documentId, {
+          message,
           content,
-          status: currentVersion.status as any,
+          version,
+          revision,
+          status,
         });
+        if (res.status !== 'Success') {
+          showSnackbar(res.message || 'Errore durante il commit', 'error');
+          return;
+        }
+        await refreshModels();
         showSnackbar('Commit salvato sul server', 'success');
       }
-    } catch {
-      showSnackbar('Errore durante il salvataggio sul server', 'error');
+    } catch (err: any) {
+      showSnackbar(err?.message || 'Errore durante il salvataggio sul server', 'error');
     } finally {
       setIsSaving(false);
     }
-  }, [aasIdShort, aasAssetId, aasDescription, submodels, currentModel, currentVersion, createDocument, commitSubmodel, updateCurrentModel, showSnackbar]);
+  }, [aasIdShort, aasAssetId, aasDescription, submodels, currentModel, createDocument, commitSubmodel, updateCurrentModel, refreshModels, showSnackbar]);
 
   const toggleSubmodel = (id: string) => {
     setExpandedSubmodels(prev => {
@@ -194,7 +212,7 @@ export default function AASEditor() {
   };
 
   return (
-    <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+    <Box sx={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
 
       {/* ── Toolbar ── */}
       <Stack
@@ -217,12 +235,12 @@ export default function AASEditor() {
           </Select>
         </FormControl>
 
-        <Tooltip title="Clicca per cambiare stato" arrow>
+        <Tooltip title="Cambia stato del commit corrente" arrow>
           <Chip
             size="small"
             label={
               <Stack direction="row" alignItems="center" spacing={0.4}>
-                <span>{currentVersion.status} v{currentVersion.version}</span>
+                <span>{currentVersion.status}</span>
                 <ArrowDropDownRounded sx={{ fontSize: 16, ml: -0.25 }} />
               </Stack>
             }
@@ -232,6 +250,15 @@ export default function AASEditor() {
             sx={{ cursor: 'pointer', pr: 0.5 }}
           />
         </Tooltip>
+
+        <Typography
+          variant="caption"
+          fontFamily="monospace"
+          sx={{ px: 1, py: 0.25, border: 1, borderColor: 'divider', borderRadius: 1, color: 'text.secondary', userSelect: 'none' }}
+        >
+          v{currentVersion.version}&nbsp;rev.{currentVersion.revision}
+        </Typography>
+
         <Menu
           anchorEl={statusMenuAnchor}
           open={Boolean(statusMenuAnchor)}
@@ -242,7 +269,7 @@ export default function AASEditor() {
         >
           <Box sx={{ px: 2, pt: 1.25, pb: 0.75 }}>
             <Typography variant="caption" color="text.disabled" fontWeight={700} textTransform="uppercase" letterSpacing={0.6}>
-              Cambia stato versione
+              Stato commit locale
             </Typography>
           </Box>
           {([
@@ -310,11 +337,11 @@ export default function AASEditor() {
           color="info"
           size="small"
           startIcon={isSaving ? undefined : <CloudUploadRounded />}
-          onClick={handleSaveToServer}
+          onClick={() => setShowCommitDialog(true)}
           disabled={isSaving}
-          sx={{ minWidth: 130 }}
+          sx={{ minWidth: 120 }}
         >
-          {isSaving ? 'Salvataggio…' : currentModel.documentId ? 'Commit al server' : 'Save to Server'}
+          {isSaving ? 'Salvataggio…' : currentModel.documentId ? 'Commit' : 'Salva sul server'}
         </Button>
 
         <Button
@@ -329,7 +356,7 @@ export default function AASEditor() {
       </Stack>
 
       {/* ── Content ── */}
-      <Box sx={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
+      <Box sx={{ flex: 1, minHeight: 0, display: 'flex', overflow: 'hidden' }}>
 
         {/* Left: AAS Properties */}
         <Box
@@ -397,12 +424,13 @@ export default function AASEditor() {
         <Box
           sx={{
             flex: 1,
-            overflowY: 'auto',
-            p: 3,
+            display: 'flex',
+            flexDirection: 'column',
             border: '2px dashed',
             borderColor: dragOver ? 'primary.main' : 'transparent',
             bgcolor: dragOver ? 'rgba(99,102,241,.04)' : 'background.default',
             transition: 'all .2s',
+            overflow: 'hidden',
           }}
           onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
           onDragLeave={() => setDragOver(false)}
@@ -416,6 +444,8 @@ export default function AASEditor() {
             <GraphView aasId={aasIdShort} sms={submodels} />
           ) : (
             <>
+              {/* Scrollable content area */}
+              <Box sx={{ flex: 1, minHeight: 0, overflowY: 'auto', p: 3, pb: 1 }}>
               {/* ── Validation summary bar ── */}
               {validationResult && (
                 <Paper
@@ -452,7 +482,7 @@ export default function AASEditor() {
               )}
 
               {!submodels.length && !dragOver && (
-                <Stack alignItems="center" justifyContent="center" height="100%" spacing={0.75}>
+                <Stack alignItems="center" justifyContent="center" sx={{ height: '100%', minHeight: 200 }} spacing={0.75}>
                   <Typography fontSize={36}>🟩</Typography>
                   <Typography variant="body2" fontWeight={500} color="text.disabled">Trascina un Submodel qui</Typography>
                   <Typography variant="caption" fontFamily="monospace" color="text.disabled">oppure clicca + sotto</Typography>
@@ -723,22 +753,37 @@ export default function AASEditor() {
                 );
               })}
 
-              <Button
-                variant="outlined"
-                fullWidth
-                startIcon={<AddRounded />}
-                onClick={() => setShowAddDialog(true)}
-                sx={{ mt: 1, borderStyle: 'dashed', fontFamily: 'monospace' }}
-              >
-                Aggiungi Submodel
-              </Button>
+              </Box>{/* end scrollable content */}
+
+              {/* Fixed footer button */}
+              <Box sx={{ flexShrink: 0, p: 2, pt: 1, borderTop: 1, borderColor: 'divider' }}>
+                <Button
+                  variant="outlined"
+                  fullWidth
+                  startIcon={<AddRounded />}
+                  onClick={() => setShowAddDialog(true)}
+                  sx={{ borderStyle: 'dashed', fontFamily: 'monospace' }}
+                >
+                  Aggiungi Submodel
+                </Button>
+              </Box>
             </>
           )}
         </Box>
       </Box>
 
       <AddSubmodelDialog open={showAddDialog} onClose={() => setShowAddDialog(false)} onAdd={addSubmodel} />
-      <AddEntityDialog open={showAddEntityDialog} onClose={() => setShowAddEntityDialog(false)} onAdd={createModel} />
+      <AddEntityDialog open={showAddEntityDialog} onClose={() => setShowAddEntityDialog(false)} onAdd={createModel} onImport={importAas} />
+      <CommitDialog
+        open={showCommitDialog}
+        onClose={() => setShowCommitDialog(false)}
+        isFirstSave={!currentModel.documentId}
+        currentVersion={currentVersion.version}
+        currentRevision={currentVersion.revision}
+        currentStatus={currentVersion.status as CommitStatus}
+        isSaving={isSaving}
+        onCommit={({ message, version, revision, status }) => handleSaveToServer(message, version, revision, status)}
+      />
       
       <ValidationDialog 
         open={showValidationDialog} 
@@ -787,6 +832,8 @@ export default function AASEditor() {
           assetKind: currentModel.assetKind,
           description: aasDescription,
         }}
+        onAfterCommit={refreshModels}
+        onOpenCommitDialog={() => setShowCommitDialog(true)}
         onDocumentCreated={(id) => updateCurrentModel({ documentId: id })}
         onCheckoutContent={(content) => {
           if (Array.isArray(content?.submodels)) {

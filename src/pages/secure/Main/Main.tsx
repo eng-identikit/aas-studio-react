@@ -36,6 +36,7 @@ const Main = ({ children }: MainProps) => {
 
   // Controlla se siamo nella pagina calendar
   const isCalendarPage = location.pathname === '/calendar';
+  const isEditorPage = location.pathname === '/editor';
 
   return (
     <DialogProvider>
@@ -120,11 +121,14 @@ const Main = ({ children }: MainProps) => {
             <Box
               sx={{
                 flexGrow: 1,
-                overflowY: isCalendarPage && !isMobile() ? 'hidden' : 'auto', // Disabilita scroll per calendar
-                overflowX: 'hidden', // Evita lo scroll orizzontale
-                px: 2,
-                pb: 2,
-                boxSizing: 'border-box', // Assicura che il padding non causi overflow
+                minHeight: 0,
+                display: 'flex',
+                flexDirection: 'column',
+                overflowY: (isCalendarPage || isEditorPage) && !isMobile() ? 'hidden' : 'auto',
+                overflowX: 'hidden',
+                px: isEditorPage ? 0 : 2,
+                pb: isEditorPage ? 0 : 2,
+                boxSizing: 'border-box',
               }}
             >
               {children}
