@@ -647,8 +647,8 @@ type CodeTab = 'main' | 'models' | 'docker' | 'requirements' | 'compose';
 
 export default function AASServer() {
   const { selectedModelId, setSelectedModelId, availableModels, currentModel, currentVersion } = useAASContext();
-  const submodels = currentModel.submodels;
-  const aasIdShort = currentModel.idShort;
+  const submodels = currentModel?.submodels ?? [];
+  const aasIdShort = currentModel?.idShort ?? '';
   const { setHandlers } = useDialogContext();
 
   const [generating, setGenerating] = useState(false);
@@ -723,6 +723,22 @@ export default function AASServer() {
     setHandlers({ onGenerateServer: runGeneration, onDownloadServer: handleDownload });
     return () => setHandlers({});
   }, [generated, activeTab]);
+
+  // No model available (e.g. the server is unreachable / the session expired so
+  // nothing loaded). Render an empty state instead of dereferencing currentModel.
+  if (!currentModel) {
+    return (
+      <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', p: 4 }}>
+        <Stack spacing={1} alignItems="center">
+          <Typography variant="subtitle1" fontWeight={700}>No AAS model available</Typography>
+          <Typography variant="body2" color="text.secondary" textAlign="center">
+            Create or import a model first. If you expected existing models, your session may have
+            expired — try signing in again.
+          </Typography>
+        </Stack>
+      </Box>
+    );
+  }
 
   return (
     <Box sx={{ flex: 1, display: 'flex', overflow: 'hidden' }}>

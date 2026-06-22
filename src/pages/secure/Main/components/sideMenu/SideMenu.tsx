@@ -80,10 +80,20 @@ export default function SideMenu() {
       >
         <DrawerHeader
           sx={{
-            justifyContent: 'center'
+            justifyContent: 'center',
+            // When collapsed, stack the favicon above the toggle so each is
+            // horizontally centered in the narrow rail (a row would push them
+            // to opposite edges).
+            ...(open ? {} : {
+              flexDirection: 'column',
+              gap: 1.5,
+              py: 2,
+              height: 'auto',
+              minHeight: 'auto',
+            }),
           }}
         >
-          {open && (
+          {open ? (
             <Box
               sx={{
                 mt: 'calc(var(--template-frame-height, 0px) + 4px)',
@@ -95,11 +105,20 @@ export default function SideMenu() {
                 sx={{
                   width: '10rem',
                   objectFit: 'contain',
-                  transform: open ? 'translateX(0)' : 'translateX(-100%)',
-                  opacity: open ? 1 : 0,
+                  transform: 'translateX(0)',
+                  opacity: 1,
                   transition: 'transform 0.3s ease, opacity 0.3s ease',
                 }} />
             </Box>
+          ) : (
+            <Box component="img" src="/favicon.png" alt="Logo"
+              sx={{
+                width: '2.25rem',
+                height: '2.25rem',
+                objectFit: 'contain',
+                flexShrink: 0,
+                transition: 'opacity 0.3s ease',
+              }} />
           )}
           <IconButton
             onClick={toggleDrawer}

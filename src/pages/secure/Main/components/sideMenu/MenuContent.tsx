@@ -219,7 +219,10 @@ export default function MenuContent({ collapsed, onItemClick }: { collapsed: boo
             key={key}
             disablePadding
             sx={{
-              display: 'block',
+              // Collapsed: center the fixed-width button in the rail (the global
+              // MuiListItemButton `margin: 2px 6px` left-shifts it in a block).
+              display: collapsed ? 'flex' : 'block',
+              ...(collapsed && { justifyContent: 'center' }),
               ...(!collapsed && {
                 '&:hover': { transform: 'scale(1.05)' },
                 transition: 'transform 0.2s ease',
@@ -248,8 +251,11 @@ export default function MenuContent({ collapsed, onItemClick }: { collapsed: boo
                 selected={isSelected}
                 sx={{
                   justifyContent: 'center',
-                  width: '50px',
-                  height: '50px',
+                  width: '44px',
+                  height: '44px',
+                  mx: 0,             // override global MuiListItemButton margin
+                  my: '2px',
+                  p: 0,
                   '& .MuiSvgIcon-root': { width: '1.5rem', height: '1.5rem' },
                   transition: 'transform 0.2s ease',
                   '&:hover': { transform: 'scale(1.05)' },
