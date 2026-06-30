@@ -57,6 +57,7 @@ import ConfirmExportDialog from './dialogs/ConfirmExportDialog';
 import type { CommitStatus } from '@/hooks/useAASVersioning';
 import { buildAasEnvironment } from '@/utils/aas-builder';
 import { verifyWithLibrary } from '@/utils/aas-validation';
+import { mapElement } from '@/utils/aas-mapper';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 type EditorView = 'list' | 'graph';
@@ -923,14 +924,7 @@ export default function AASEditor() {
               semanticId: sm.semanticId?.keys?.[0]?.value || '',
               description: sm.description?.[0]?.text || '',
               category: 'Imported',
-              elements: (sm.submodelElements || []).map((el: any) => ({
-                idShort: el.idShort,
-                type: el.modelType,
-                value: el.value as string | undefined,
-                valueType: el.valueType,
-                semanticId: el.semanticId?.keys?.[0]?.value || '',
-                required: false
-              }))
+              elements: (sm.submodelElements || []).map(mapElement)
             }))
           };
           importAas(importedModel);

@@ -12,6 +12,7 @@ export type ElementType =
   | 'Property'
   | 'MultiLanguageProperty'
   | 'SubmodelElementCollection'
+  | 'SubmodelElementList'
   | 'Operation'
   | 'File'
   | 'Blob'

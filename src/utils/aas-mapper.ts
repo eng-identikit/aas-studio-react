@@ -22,6 +22,7 @@ const ELEMENT_TYPES: ReadonlySet<string> = new Set<ElementType>([
   'Property',
   'MultiLanguageProperty',
   'SubmodelElementCollection',
+  'SubmodelElementList',
   'Operation',
   'File',
   'Blob',
@@ -74,7 +75,7 @@ function mapChild(el: Json): SubmodelElementChild {
   };
 }
 
-function mapElement(raw: unknown): SubmodelElement {
+export function mapElement(raw: unknown): SubmodelElement {
   const el = (raw ?? {}) as Json;
   const type = asElementType(el.modelType);
   const base = {
@@ -88,10 +89,12 @@ function mapElement(raw: unknown): SubmodelElement {
     case 'MultiLanguageProperty':
       return { ...base, value: mapMlpValue(el.value) };
     case 'SubmodelElementCollection':
+    case 'SubmodelElementList':
+      // List items may be unnamed (no idShort); still map them as children.
       return {
         ...base,
         children: (Array.isArray(el.value) ? el.value : [])
-          .filter((c): c is Json => !!c && typeof c === 'object' && 'idShort' in (c as Json))
+          .filter((c): c is Json => !!c && typeof c === 'object' && 'modelType' in (c as Json))
           .map(mapChild),
       };
     case 'File':

@@ -13,6 +13,7 @@ export interface IDTASubmodelElement {
   value?: string | unknown[] | IDTAReference;
   contentType?: string;
   inoutputVariables?: unknown[];
+  typeValueListElement?: string;
 }
 
 export interface IDTASubmodel {
@@ -82,6 +83,20 @@ function mapSubmodelElement(el: SubmodelElement): IDTASubmodelElement {
         ...base,
         modelType: 'SubmodelElementCollection',
         ...(children.length ? { value: children } : {}),
+      };
+    }
+    case 'SubmodelElementList': {
+      // Items have no idShort (AASd-120). typeValueListElement is required; derive
+      // it from the items, falling back to Property for an empty list.
+      const items = (el.children || []).map((child) => {
+        const { idShort: _drop, ...rest } = mapSubmodelElement(child as SubmodelElement);
+        return rest;
+      });
+      return {
+        ...base,
+        modelType: 'SubmodelElementList',
+        typeValueListElement: items[0]?.modelType ?? 'Property',
+        ...(items.length ? { value: items } : {}),
       };
     }
     case 'File':
