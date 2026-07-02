@@ -13,12 +13,12 @@ import {
   Divider,
   FormLabel,
   IconButton,
+  Input,
   ListItemIcon,
   ListItemText,
   Menu,
   MenuItem,
   Paper,
-  Select,
   Stack,
   TextField,
   ToggleButton,
@@ -52,7 +52,7 @@ import {
 import VersionHistoryDrawer from './components/VersionHistoryDrawer';
 import GraphView from './components/GraphView';
 
-import { useAASContext, XsdValueType, AASModel, SubmodelTemplate, SubmodelElementChild, validateAAS, ValidationResult } from '@/context/AASContext';
+import { useAASContext, XsdValueType, AASModel, SubmodelTemplate, SubmodelElement, SubmodelElementChild, validateAAS, ValidationResult } from '@/context/AASContext';
 import { useDialogContext } from '@/context/DialogContext';
 import { useAASVersioning } from '@/hooks/useAASVersioning';
 import { useCustomSnackbar } from '@/context/SnackbarContext';
@@ -134,8 +134,7 @@ function ChildRows({ smId, elIdx, children, path, expanded, onToggle, onUpdate }
                 <Box component="span" color="text.secondary"> : {ch.type}</Box>
               </Typography>
               {ch.type === 'Property' && (
-                <TextField
-                  variant="standard"
+                <Input
                   fullWidth
                   value={ch.value || ''}
                   onChange={(e) => onUpdate(smId, elIdx, childPath, 'value', e.target.value)}
@@ -163,7 +162,7 @@ function ChildRows({ smId, elIdx, children, path, expanded, onToggle, onUpdate }
               )}
             </Stack>
             {isContainer && (
-              <Collapse in={open}>
+              <Collapse in={open} unmountOnExit>
                 <Box sx={{ pl: 2 }}>
                   {ch.children && ch.children.length > 0 ? (
                     <ChildRows
@@ -185,6 +184,281 @@ function ChildRows({ smId, elIdx, children, path, expanded, onToggle, onUpdate }
         );
       })}
     </>
+  );
+}
+
+// Lightweight replacement for a per-row MUI <Select>: renders as plain text and
+// mounts the Menu only when clicked. A full Select in every row dominated the
+// mount cost of large submodels.
+function TypeSelectCell({ value, onChange }: { value: XsdValueType | undefined; onChange: (v: XsdValueType) => void }) {
+  const [anchor, setAnchor] = useState<null | HTMLElement>(null);
+  return (
+    <>
+      <Stack
+        direction="row"
+        alignItems="center"
+        role="button"
+        tabIndex={0}
+        aria-label="Cambia tipo valore"
+        onClick={(e) => { e.stopPropagation(); setAnchor(e.currentTarget); }}
+        onKeyDown={activateOnKey(function noop() { /* opened via click only */ })}
+        sx={{ cursor: 'pointer', flex: 1, minWidth: 0, '&:hover': { color: 'primary.main' } }}
+      >
+        <Typography variant="caption" fontFamily="monospace" noWrap sx={{ flex: 1, color: 'inherit' }}>
+          {value || 'xs:string'}
+        </Typography>
+        <ArrowDropDownRounded sx={{ fontSize: 16, color: 'text.secondary', flexShrink: 0 }} />
+      </Stack>
+      {anchor && (
+        <Menu anchorEl={anchor} open onClose={() => setAnchor(null)}>
+          {XSD_TYPES.map(t => (
+            <MenuItem
+              key={t}
+              selected={t === (value || 'xs:string')}
+              onClick={(e) => { e.stopPropagation(); onChange(t); setAnchor(null); }}
+              sx={{ fontFamily: 'monospace', fontSize: 11 }}
+            >
+              {t}
+            </MenuItem>
+          ))}
+        </Menu>
+      )}
+    </>
+  );
+}
+
+// One table row, memoized: `el` keeps its identity unless that element was edited,
+// so typing in a Property re-renders exactly one row. Before, every keystroke
+// re-rendered the whole open card (hundreds of MUI inputs on IDTA submodels).
+interface ElementRowProps {
+  smId: string;
+  smPrefix: string;
+  el: SubmodelElement;
+  ei: number;
+  validationResult: ValidationResult | null;
+  expandedElements: Set<string>;
+  onToggleElement: (key: string) => void;
+  onUpdateElement: (smId: string, elIdx: number, field: string, value: string | Record<string, string>) => void;
+  onUpdateChild: (smId: string, elIdx: number, path: number[], field: string, value: string) => void;
+}
+
+const ElementRow = memo(function ElementRow({
+  smId, smPrefix, el, ei, validationResult, expandedElements,
+  onToggleElement, onUpdateElement, onUpdateChild,
+}: ElementRowProps) {
+  const isContainer = el.type === 'SubmodelElementCollection' || el.type === 'SubmodelElementList';
+  const dotColor =
+    isContainer ? 'warning.main' :
+    el.type === 'Operation' ? 'info.main' : 'primary.main';
+  const elKey = `${smId}:${ei}`;
+  const elOpen = expandedElements.has(elKey);
+  const elErrors = validationResult?.errors.filter(
+    f => f.path.startsWith(smPrefix) && f.path.includes(`→ ${el.idShort}`)
+  ) ?? [];
+  const elWarnings = validationResult?.warnings.filter(
+    f => f.path.startsWith(smPrefix) && f.path.includes(`→ ${el.idShort}`)
+  ) ?? [];
+  const mlv = typeof el.value === 'object' && el.value !== null ? el.value as Record<string, string> : {};
+  return (
+    <Box
+      sx={(theme) => ({
+        borderBottom: 1,
+        borderColor: 'divider',
+        ...(elErrors.length > 0 && { bgcolor: alpha(theme.palette.error.main, 0.06) }),
+        ...(elErrors.length === 0 && elWarnings.length > 0 && { bgcolor: alpha(theme.palette.warning.main, 0.06) }),
+      })}
+    >
+      <Stack
+        direction="row"
+        alignItems="center"
+        spacing={1}
+        sx={{ px: 2.25, py: 0.5, minHeight: 40, '&:hover': { bgcolor: 'action.hover' } }}
+        onClick={isContainer ? () => onToggleElement(elKey) : undefined}
+        {...(isContainer && {
+          role: 'button',
+          tabIndex: 0,
+          'aria-expanded': elOpen,
+          onKeyDown: activateOnKey(() => onToggleElement(elKey)),
+          style: { cursor: 'pointer' },
+        })}
+      >
+        {/* idShort column */}
+        <Stack direction="row" alignItems="center" spacing={0.75} sx={{ flex: '0 0 38%', minWidth: 0 }}>
+          <Box sx={{ width: 6, height: 6, borderRadius: '50%', bgcolor: dotColor, flexShrink: 0 }} />
+          <Typography variant="caption" fontFamily="monospace" fontWeight={600} noWrap>{el.idShort}</Typography>
+          {el.required && (
+            <Typography variant="caption" color="error.main" fontWeight={700} sx={{ fontSize: 10, flexShrink: 0 }}>REQ</Typography>
+          )}
+        </Stack>
+
+        {/* Value column */}
+        <Box sx={{ flex: 1, minWidth: 0 }} onClick={(e) => { if (!isContainer) e.stopPropagation(); }}>
+          {el.type === 'Property' && (
+            <Input
+              fullWidth
+              value={typeof el.value === 'string' ? el.value : ''}
+              onChange={(e) => onUpdateElement(smId, ei, 'value', e.target.value)}
+              placeholder={`valore (${el.valueType || 'string'})…`}
+              inputProps={{ 'aria-label': `valore ${el.idShort}` }}
+              sx={cellInputSx}
+            />
+          )}
+          {el.type === 'MultiLanguageProperty' && (
+            <Stack spacing={0.25}>
+              {(['en', 'it', 'de'] as const).map(lang => (
+                <Stack key={lang} direction="row" alignItems="center" spacing={0.75}>
+                  <Typography variant="caption" fontFamily="monospace" color="text.secondary" sx={{ width: 18, flexShrink: 0 }}>{lang}</Typography>
+                  <Input
+                    fullWidth
+                    value={mlv[lang] || ''}
+                    onChange={(e) => onUpdateElement(smId, ei, 'value', { ...mlv, [lang]: e.target.value })}
+                    placeholder={`testo (${lang})…`}
+                    inputProps={{ 'aria-label': `${el.idShort} ${lang}`, style: { fontSize: 11, paddingTop: 2, paddingBottom: 2 } }}
+                  />
+                </Stack>
+              ))}
+            </Stack>
+          )}
+          {isContainer && (
+            <Typography variant="caption" color="text.secondary" fontFamily="monospace">
+              {(el.children?.length ?? 0)} {(el.children?.length ?? 0) === 1 ? 'elemento' : 'elementi'}
+            </Typography>
+          )}
+          {!isContainer && el.type !== 'Property' && el.type !== 'MultiLanguageProperty' && (
+            <Typography variant="caption" color="text.secondary">—</Typography>
+          )}
+        </Box>
+
+        {/* Type column */}
+        <Stack direction="row" alignItems="center" spacing={0.5} sx={{ flex: '0 0 140px' }}>
+          {el.type === 'Property' ? (
+            <TypeSelectCell
+              value={el.valueType}
+              onChange={(v) => onUpdateElement(smId, ei, 'valueType', v)}
+            />
+          ) : (
+            <Typography variant="caption" color="text.secondary" fontFamily="monospace" noWrap sx={{ flex: 1 }}>{el.type}</Typography>
+          )}
+          {isContainer && (
+            <ExpandMoreRounded
+              sx={{
+                color: 'text.secondary',
+                transform: elOpen ? 'rotate(180deg)' : 'rotate(0deg)',
+                transition: 'transform 0.2s',
+                fontSize: 16,
+                flexShrink: 0,
+              }}
+            />
+          )}
+        </Stack>
+      </Stack>
+
+      {/* Container children (indented sub-rows, recursive). unmountOnExit is
+          load-bearing: without it every collapsed collection keeps its whole
+          hidden subtree of inputs mounted, which froze the expand. */}
+      {isContainer && el.children && (
+        <Collapse in={elOpen} unmountOnExit>
+          <Box sx={{ pl: 4, pr: 2.25, pb: 1 }}>
+            {el.children.length > 0 ? (
+              <ChildRows
+                smId={smId}
+                elIdx={ei}
+                children={el.children}
+                path={[]}
+                expanded={expandedElements}
+                onToggle={onToggleElement}
+                onUpdate={onUpdateChild}
+              />
+            ) : (
+              <Typography variant="caption" fontFamily="monospace" color="text.secondary">vuoto</Typography>
+            )}
+          </Box>
+        </Collapse>
+      )}
+
+      {/* Per-element validation messages */}
+      {elErrors.map((f, fi) => (
+        <Stack key={fi} direction="row" alignItems="center" spacing={0.5} sx={{ px: 2.25, pb: 0.5 }}>
+          <ErrorOutlineRounded sx={{ fontSize: 13, color: 'error.main', flexShrink: 0 }} />
+          <Typography variant="caption" color="error.main" fontFamily="monospace">{f.msg}</Typography>
+        </Stack>
+      ))}
+      {elWarnings.map((f, fi) => (
+        <Stack key={fi} direction="row" alignItems="center" spacing={0.5} sx={{ px: 2.25, pb: 0.5 }}>
+          <WarningAmberRounded sx={{ fontSize: 13, color: 'warning.main', flexShrink: 0 }} />
+          <Typography variant="caption" color="warning.main" fontFamily="monospace">{f.msg}</Typography>
+        </Stack>
+      ))}
+    </Box>
+  );
+});
+
+// Streams rows into the DOM chunk-by-chunk: mounting hundreds of MUI inputs in
+// one commit blocked the main thread for seconds on large IDTA submodels. The
+// first chunk paints on click, the rest follows one animation frame at a time.
+const ROW_CHUNK = 15;
+
+interface ElementsTableProps {
+  smId: string;
+  smPrefix: string;
+  elements: SubmodelElement[];
+  validationResult: ValidationResult | null;
+  expandedElements: Set<string>;
+  onToggleElement: (key: string) => void;
+  onUpdateElement: (smId: string, elIdx: number, field: string, value: string | Record<string, string>) => void;
+  onUpdateChild: (smId: string, elIdx: number, path: number[], field: string, value: string) => void;
+}
+
+function ElementsTable({
+  smId, smPrefix, elements, validationResult, expandedElements,
+  onToggleElement, onUpdateElement, onUpdateChild,
+}: ElementsTableProps) {
+  const [visible, setVisible] = useState(() => Math.min(ROW_CHUNK, elements.length));
+  useEffect(() => {
+    if (visible >= elements.length) return;
+    const id = requestAnimationFrame(() => setVisible(v => Math.min(v + ROW_CHUNK, elements.length)));
+    return () => cancelAnimationFrame(id);
+  }, [visible, elements.length]);
+
+  return (
+    <Box>
+      {elements.length > 0 && (
+        <Stack
+          direction="row"
+          sx={{ px: 2.25, py: 0.5, bgcolor: 'action.hover', borderBottom: 1, borderColor: 'divider' }}
+        >
+          <Typography variant="caption" color="text.secondary" fontWeight={600} sx={{ flex: '0 0 38%' }}>idShort</Typography>
+          <Typography variant="caption" color="text.secondary" fontWeight={600} sx={{ flex: 1 }}>Valore</Typography>
+          <Typography variant="caption" color="text.secondary" fontWeight={600} sx={{ flex: '0 0 140px' }}>Tipo</Typography>
+        </Stack>
+      )}
+
+      {elements.slice(0, visible).map((el, ei) => (
+        <ElementRow
+          key={ei}
+          smId={smId}
+          smPrefix={smPrefix}
+          el={el}
+          ei={ei}
+          validationResult={validationResult}
+          expandedElements={expandedElements}
+          onToggleElement={onToggleElement}
+          onUpdateElement={onUpdateElement}
+          onUpdateChild={onUpdateChild}
+        />
+      ))}
+
+      {visible < elements.length && (
+        <Typography variant="caption" fontFamily="monospace" color="text.secondary" textAlign="center" display="block" py={1}>
+          Caricamento elementi… {visible}/{elements.length}
+        </Typography>
+      )}
+      {!elements.length && (
+        <Typography variant="caption" fontFamily="monospace" color="text.secondary" textAlign="center" display="block" py={2.5}>
+          Submodel vuoto
+        </Typography>
+      )}
+    </Box>
   );
 }
 
@@ -296,7 +570,7 @@ const SubmodelCard = memo(function SubmodelCard({
       </Stack>
 
       {/* Submodel identity edit */}
-      <Collapse in={isEditing}>
+      <Collapse in={isEditing} unmountOnExit>
         <Box sx={{ px: 2.25, py: 1.75, borderBottom: isOpen ? 1 : 0, borderColor: 'divider', bgcolor: 'action.hover' }}>
           <Stack spacing={1.25}>
             <Stack direction="row" spacing={1.25}>
@@ -345,182 +619,18 @@ const SubmodelCard = memo(function SubmodelCard({
         </Box>
       </Collapse>
 
-      {/* Elements — dense key/value table */}
+      {/* Elements — dense key/value table (progressively rendered) */}
       {isOpen && (
-        <Box>
-          {elements.length > 0 && (
-            <Stack
-              direction="row"
-              sx={{ px: 2.25, py: 0.5, bgcolor: 'action.hover', borderBottom: 1, borderColor: 'divider' }}
-            >
-              <Typography variant="caption" color="text.secondary" fontWeight={600} sx={{ flex: '0 0 38%' }}>idShort</Typography>
-              <Typography variant="caption" color="text.secondary" fontWeight={600} sx={{ flex: 1 }}>Valore</Typography>
-              <Typography variant="caption" color="text.secondary" fontWeight={600} sx={{ flex: '0 0 140px' }}>Tipo</Typography>
-            </Stack>
-          )}
-
-          {elements.map((el, ei) => {
-            const isContainer = el.type === 'SubmodelElementCollection' || el.type === 'SubmodelElementList';
-            const dotColor =
-              isContainer ? 'warning.main' :
-              el.type === 'Operation' ? 'info.main' : 'primary.main';
-            const elKey = `${sm.id}:${ei}`;
-            const elOpen = expandedElements.has(elKey);
-            const elErrors = validationResult?.errors.filter(
-              f => f.path.startsWith(smPrefix) && f.path.includes(`→ ${el.idShort}`)
-            ) ?? [];
-            const elWarnings = validationResult?.warnings.filter(
-              f => f.path.startsWith(smPrefix) && f.path.includes(`→ ${el.idShort}`)
-            ) ?? [];
-            const mlv = typeof el.value === 'object' && el.value !== null ? el.value as Record<string, string> : {};
-            return (
-              <Box
-                key={ei}
-                sx={(theme) => ({
-                  borderBottom: 1,
-                  borderColor: 'divider',
-                  ...(elErrors.length > 0 && { bgcolor: alpha(theme.palette.error.main, 0.06) }),
-                  ...(elErrors.length === 0 && elWarnings.length > 0 && { bgcolor: alpha(theme.palette.warning.main, 0.06) }),
-                })}
-              >
-                <Stack
-                  direction="row"
-                  alignItems="center"
-                  spacing={1}
-                  sx={{ px: 2.25, py: 0.5, minHeight: 40, '&:hover': { bgcolor: 'action.hover' } }}
-                  onClick={isContainer ? () => onToggleElement(elKey) : undefined}
-                  {...(isContainer && {
-                    role: 'button',
-                    tabIndex: 0,
-                    'aria-expanded': elOpen,
-                    onKeyDown: activateOnKey(() => onToggleElement(elKey)),
-                    style: { cursor: 'pointer' },
-                  })}
-                >
-                  {/* idShort column */}
-                  <Stack direction="row" alignItems="center" spacing={0.75} sx={{ flex: '0 0 38%', minWidth: 0 }}>
-                    <Box sx={{ width: 6, height: 6, borderRadius: '50%', bgcolor: dotColor, flexShrink: 0 }} />
-                    <Typography variant="caption" fontFamily="monospace" fontWeight={600} noWrap>{el.idShort}</Typography>
-                    {el.required && (
-                      <Typography variant="caption" color="error.main" fontWeight={700} sx={{ fontSize: 10, flexShrink: 0 }}>REQ</Typography>
-                    )}
-                  </Stack>
-
-                  {/* Value column */}
-                  <Box sx={{ flex: 1, minWidth: 0 }} onClick={(e) => { if (!isContainer) e.stopPropagation(); }}>
-                    {el.type === 'Property' && (
-                      <TextField
-                        variant="standard"
-                        fullWidth
-                        value={typeof el.value === 'string' ? el.value : ''}
-                        onChange={(e) => onUpdateElement(sm.id, ei, 'value', e.target.value)}
-                        placeholder={`valore (${el.valueType || 'string'})…`}
-                        inputProps={{ 'aria-label': `valore ${el.idShort}` }}
-                        sx={cellInputSx}
-                      />
-                    )}
-                    {el.type === 'MultiLanguageProperty' && (
-                      <Stack spacing={0.25}>
-                        {(['en', 'it', 'de'] as const).map(lang => (
-                          <Stack key={lang} direction="row" alignItems="center" spacing={0.75}>
-                            <Typography variant="caption" fontFamily="monospace" color="text.secondary" sx={{ width: 18, flexShrink: 0 }}>{lang}</Typography>
-                            <TextField
-                              variant="standard"
-                              fullWidth
-                              value={mlv[lang] || ''}
-                              onChange={(e) => onUpdateElement(sm.id, ei, 'value', { ...mlv, [lang]: e.target.value })}
-                              placeholder={`testo (${lang})…`}
-                              inputProps={{ 'aria-label': `${el.idShort} ${lang}`, style: { fontSize: 11, paddingTop: 2, paddingBottom: 2 } }}
-                            />
-                          </Stack>
-                        ))}
-                      </Stack>
-                    )}
-                    {isContainer && (
-                      <Typography variant="caption" color="text.secondary" fontFamily="monospace">
-                        {(el.children?.length ?? 0)} {(el.children?.length ?? 0) === 1 ? 'elemento' : 'elementi'}
-                      </Typography>
-                    )}
-                    {!isContainer && el.type !== 'Property' && el.type !== 'MultiLanguageProperty' && (
-                      <Typography variant="caption" color="text.secondary">—</Typography>
-                    )}
-                  </Box>
-
-                  {/* Type column */}
-                  <Stack direction="row" alignItems="center" spacing={0.5} sx={{ flex: '0 0 140px' }}>
-                    {el.type === 'Property' ? (
-                      <Select
-                        variant="standard"
-                        fullWidth
-                        value={el.valueType || 'xs:string'}
-                        onChange={(e) => onUpdateElement(sm.id, ei, 'valueType', e.target.value)}
-                        onClick={(e) => e.stopPropagation()}
-                        sx={{ '& .MuiSelect-select': { fontFamily: 'monospace', fontSize: 11, py: 0.25 } }}
-                      >
-                        {XSD_TYPES.map(t => (
-                          <MenuItem key={t} value={t} sx={{ fontFamily: 'monospace', fontSize: 11 }}>{t}</MenuItem>
-                        ))}
-                      </Select>
-                    ) : (
-                      <Typography variant="caption" color="text.secondary" fontFamily="monospace" noWrap sx={{ flex: 1 }}>{el.type}</Typography>
-                    )}
-                    {isContainer && (
-                      <ExpandMoreRounded
-                        sx={{
-                          color: 'text.secondary',
-                          transform: elOpen ? 'rotate(180deg)' : 'rotate(0deg)',
-                          transition: 'transform 0.2s',
-                          fontSize: 16,
-                          flexShrink: 0,
-                        }}
-                      />
-                    )}
-                  </Stack>
-                </Stack>
-
-                {/* Container children (indented sub-rows, recursive) */}
-                {isContainer && el.children && (
-                  <Collapse in={elOpen}>
-                    <Box sx={{ pl: 4, pr: 2.25, pb: 1 }}>
-                      {el.children.length > 0 ? (
-                        <ChildRows
-                          smId={sm.id}
-                          elIdx={ei}
-                          children={el.children}
-                          path={[]}
-                          expanded={expandedElements}
-                          onToggle={onToggleElement}
-                          onUpdate={onUpdateChild}
-                        />
-                      ) : (
-                        <Typography variant="caption" fontFamily="monospace" color="text.secondary">vuoto</Typography>
-                      )}
-                    </Box>
-                  </Collapse>
-                )}
-
-                {/* Per-element validation messages */}
-                {elErrors.map((f, fi) => (
-                  <Stack key={fi} direction="row" alignItems="center" spacing={0.5} sx={{ px: 2.25, pb: 0.5 }}>
-                    <ErrorOutlineRounded sx={{ fontSize: 13, color: 'error.main', flexShrink: 0 }} />
-                    <Typography variant="caption" color="error.main" fontFamily="monospace">{f.msg}</Typography>
-                  </Stack>
-                ))}
-                {elWarnings.map((f, fi) => (
-                  <Stack key={fi} direction="row" alignItems="center" spacing={0.5} sx={{ px: 2.25, pb: 0.5 }}>
-                    <WarningAmberRounded sx={{ fontSize: 13, color: 'warning.main', flexShrink: 0 }} />
-                    <Typography variant="caption" color="warning.main" fontFamily="monospace">{f.msg}</Typography>
-                  </Stack>
-                ))}
-              </Box>
-            );
-          })}
-          {!elements.length && (
-            <Typography variant="caption" fontFamily="monospace" color="text.secondary" textAlign="center" display="block" py={2.5}>
-              Submodel vuoto
-            </Typography>
-          )}
-        </Box>
+        <ElementsTable
+          smId={sm.id}
+          smPrefix={smPrefix}
+          elements={elements}
+          validationResult={validationResult}
+          expandedElements={expandedElements}
+          onToggleElement={onToggleElement}
+          onUpdateElement={onUpdateElement}
+          onUpdateChild={onUpdateChild}
+        />
       )}
     </Paper>
   );
