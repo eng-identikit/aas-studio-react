@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, ReactNode } from 'react';
+import { createContext, useContext, useMemo, useState, ReactNode } from 'react';
 
 interface DialogHandlers {
   // Dashboard
@@ -29,8 +29,9 @@ const DialogContext = createContext<DialogContextProps | undefined>(undefined);
 
 export const DialogProvider = ({ children }: { children: ReactNode }) => {
   const [handlers, setHandlers] = useState<DialogHandlers>({});
+  const value = useMemo(() => ({ handlers, setHandlers }), [handlers]);
   return (
-    <DialogContext.Provider value={{ handlers, setHandlers }}>
+    <DialogContext.Provider value={value}>
       {children}
     </DialogContext.Provider>
   );

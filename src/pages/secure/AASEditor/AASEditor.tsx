@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, KeyboardEvent } from 'react';
+import { memo, useState, useCallback, useEffect, useRef, KeyboardEvent } from 'react';
 import {
   Box,
   Button,
@@ -18,10 +18,8 @@ import {
   Menu,
   MenuItem,
   Paper,
-  Popover,
   Select,
   Stack,
-  TextareaAutosize,
   TextField,
   ToggleButton,
   ToggleButtonGroup,
@@ -43,7 +41,6 @@ import {
   FormatListBulletedRounded,
   HistoryRounded,
   MenuOpenRounded,
-  TuneRounded,
   WarningAmberRounded,
   EditNoteRounded,
   ArchiveRounded,
@@ -191,6 +188,344 @@ function ChildRows({ smId, elIdx, children, path, expanded, onToggle, onUpdate }
   );
 }
 
+// Memoized: with the whole page re-rendering on every context change, typing in a
+// Property froze on large models. Props are kept referentially stable so only the
+// card whose submodel actually changed re-renders.
+interface SubmodelCardProps {
+  sm: SubmodelTemplate;
+  idx: number;
+  isOpen: boolean;
+  isEditing: boolean;
+  validationResult: ValidationResult | null;
+  expandedElements: Set<string>;
+  onToggleSubmodel: (id: string) => void;
+  onToggleEditSm: (idx: number) => void;
+  onDeleteSubmodel: (sm: SubmodelTemplate) => void;
+  onToggleElement: (key: string) => void;
+  onUpdateSubmodel: (smId: string, patch: Partial<SubmodelTemplate>) => void;
+  onUpdateElement: (smId: string, elIdx: number, field: string, value: string | Record<string, string>) => void;
+  onUpdateChild: (smId: string, elIdx: number, path: number[], field: string, value: string) => void;
+}
+
+const SubmodelCard = memo(function SubmodelCard({
+  sm, idx, isOpen, isEditing, validationResult, expandedElements,
+  onToggleSubmodel, onToggleEditSm, onDeleteSubmodel, onToggleElement,
+  onUpdateSubmodel, onUpdateElement, onUpdateChild,
+}: SubmodelCardProps) {
+  const smPrefix = `SM[${idx}]`;
+  const smErrors = validationResult?.errors.filter(f => f.path.startsWith(smPrefix)) ?? [];
+  const smWarnings = validationResult?.warnings.filter(f => f.path.startsWith(smPrefix)) ?? [];
+  const elements = sm.elements || [];
+  return (
+    <Paper
+      variant="outlined"
+      sx={{
+        mb: 1.5,
+        overflow: 'hidden',
+        ...(smErrors.length > 0 && { borderColor: 'error.main', borderWidth: 2 }),
+        ...(smErrors.length === 0 && smWarnings.length > 0 && { borderColor: 'warning.main', borderWidth: 2 }),
+      }}
+    >
+      {/* Submodel header */}
+      <Stack
+        direction="row"
+        alignItems="center"
+        spacing={1.25}
+        role="button"
+        tabIndex={0}
+        aria-expanded={isOpen}
+        sx={{
+          px: 2.25, py: 1.75,
+          cursor: 'pointer',
+          borderBottom: isOpen || isEditing ? 1 : 0,
+          borderColor: 'divider',
+        }}
+        onClick={() => onToggleSubmodel(sm.id)}
+        onKeyDown={activateOnKey(() => onToggleSubmodel(sm.id))}
+      >
+        <WidgetsRounded sx={{ fontSize: 18, color: 'primary.main', flexShrink: 0 }} />
+        <Box flex={1} minWidth={0}>
+          <Typography variant="body2" fontWeight={600} noWrap>{sm.idShort}</Typography>
+          <Typography variant="caption" color="text.secondary" fontFamily="monospace" display="block" noWrap>
+            {sm.id}
+          </Typography>
+        </Box>
+        <Chip
+          size="small"
+          label={`${elements.length} el`}
+          color="primary"
+          variant="outlined"
+          sx={{ fontFamily: 'monospace', fontSize: 10 }}
+        />
+        {smErrors.length > 0 && (
+          <Chip size="small" icon={<ErrorOutlineRounded />} label={smErrors.length} color="error" sx={{ fontSize: 10, height: 22 }} />
+        )}
+        {smWarnings.length > 0 && (
+          <Chip size="small" icon={<WarningAmberRounded />} label={smWarnings.length} color="warning" sx={{ fontSize: 10, height: 22 }} />
+        )}
+        <IconButton
+          size="small"
+          aria-label="Modifica submodel"
+          onClick={(e) => { e.stopPropagation(); onToggleEditSm(idx); }}
+          sx={{ 
+            color: 'primary.main',
+            backgroundColor: 'background.default'
+          }}
+        >
+          <EditRounded sx={{ fontSize: 15 }} />
+        </IconButton>
+        <IconButton
+          size="small"
+          aria-label="Elimina submodel"
+          onClick={(e) => { e.stopPropagation(); onDeleteSubmodel(sm); }}
+          sx={{ 
+            color: 'error.main',
+            backgroundColor: 'background.default'
+          }}
+        >
+          <DeleteRounded sx={{ fontSize: 15 }} />
+        </IconButton>
+        <ExpandMoreRounded
+          sx={{
+            color: 'text.secondary',
+            transform: isOpen ? 'rotate(180deg)' : 'rotate(0deg)',
+            transition: 'transform 0.2s',
+            fontSize: 18,
+          }}
+        />
+      </Stack>
+
+      {/* Submodel identity edit */}
+      <Collapse in={isEditing}>
+        <Box sx={{ px: 2.25, py: 1.75, borderBottom: isOpen ? 1 : 0, borderColor: 'divider', bgcolor: 'action.hover' }}>
+          <Stack spacing={1.25}>
+            <Stack direction="row" spacing={1.25}>
+              <Box sx={{ flex: 1 }}>
+                <FormLabel sx={{ fontSize: 10, mb: 0.5, display: 'block' }}>idShort</FormLabel>
+                <TextField
+                  size="small"
+                  fullWidth
+                  value={sm.idShort}
+                  onChange={(e) => onUpdateSubmodel(sm.id, { idShort: e.target.value })}
+                  inputProps={{ 'aria-label': 'Submodel idShort', style: { fontFamily: 'monospace', fontSize: 11 } }}
+                />
+              </Box>
+              <Box sx={{ flex: 2 }}>
+                <FormLabel sx={{ fontSize: 10, mb: 0.5, display: 'block' }}>id (AAS instance IRI)</FormLabel>
+                <TextField
+                  size="small"
+                  fullWidth
+                  value={sm.id}
+                  onChange={(e) => onUpdateSubmodel(sm.id, { id: e.target.value })}
+                  inputProps={{ 'aria-label': 'Submodel id (IRI)', style: { fontFamily: 'monospace', fontSize: 11 } }}
+                />
+              </Box>
+            </Stack>
+            <Box>
+              <FormLabel sx={{ fontSize: 10, mb: 0.5, display: 'block' }}>semanticId</FormLabel>
+              <TextField
+                size="small"
+                fullWidth
+                value={sm.semanticId}
+                onChange={(e) => onUpdateSubmodel(sm.id, { semanticId: e.target.value })}
+                inputProps={{ 'aria-label': 'Submodel semanticId', style: { fontFamily: 'monospace', fontSize: 11 } }}
+              />
+            </Box>
+            <Box>
+              <FormLabel sx={{ fontSize: 10, mb: 0.5, display: 'block' }}>Descrizione</FormLabel>
+              <TextField
+                size="small"
+                fullWidth
+                value={sm.description}
+                onChange={(e) => onUpdateSubmodel(sm.id, { description: e.target.value })}
+                inputProps={{ 'aria-label': 'Submodel descrizione' }}
+              />
+            </Box>
+          </Stack>
+        </Box>
+      </Collapse>
+
+      {/* Elements — dense key/value table */}
+      {isOpen && (
+        <Box>
+          {elements.length > 0 && (
+            <Stack
+              direction="row"
+              sx={{ px: 2.25, py: 0.5, bgcolor: 'action.hover', borderBottom: 1, borderColor: 'divider' }}
+            >
+              <Typography variant="caption" color="text.secondary" fontWeight={600} sx={{ flex: '0 0 38%' }}>idShort</Typography>
+              <Typography variant="caption" color="text.secondary" fontWeight={600} sx={{ flex: 1 }}>Valore</Typography>
+              <Typography variant="caption" color="text.secondary" fontWeight={600} sx={{ flex: '0 0 140px' }}>Tipo</Typography>
+            </Stack>
+          )}
+
+          {elements.map((el, ei) => {
+            const isContainer = el.type === 'SubmodelElementCollection' || el.type === 'SubmodelElementList';
+            const dotColor =
+              isContainer ? 'warning.main' :
+              el.type === 'Operation' ? 'info.main' : 'primary.main';
+            const elKey = `${sm.id}:${ei}`;
+            const elOpen = expandedElements.has(elKey);
+            const elErrors = validationResult?.errors.filter(
+              f => f.path.startsWith(smPrefix) && f.path.includes(`→ ${el.idShort}`)
+            ) ?? [];
+            const elWarnings = validationResult?.warnings.filter(
+              f => f.path.startsWith(smPrefix) && f.path.includes(`→ ${el.idShort}`)
+            ) ?? [];
+            const mlv = typeof el.value === 'object' && el.value !== null ? el.value as Record<string, string> : {};
+            return (
+              <Box
+                key={ei}
+                sx={(theme) => ({
+                  borderBottom: 1,
+                  borderColor: 'divider',
+                  ...(elErrors.length > 0 && { bgcolor: alpha(theme.palette.error.main, 0.06) }),
+                  ...(elErrors.length === 0 && elWarnings.length > 0 && { bgcolor: alpha(theme.palette.warning.main, 0.06) }),
+                })}
+              >
+                <Stack
+                  direction="row"
+                  alignItems="center"
+                  spacing={1}
+                  sx={{ px: 2.25, py: 0.5, minHeight: 40, '&:hover': { bgcolor: 'action.hover' } }}
+                  onClick={isContainer ? () => onToggleElement(elKey) : undefined}
+                  {...(isContainer && {
+                    role: 'button',
+                    tabIndex: 0,
+                    'aria-expanded': elOpen,
+                    onKeyDown: activateOnKey(() => onToggleElement(elKey)),
+                    style: { cursor: 'pointer' },
+                  })}
+                >
+                  {/* idShort column */}
+                  <Stack direction="row" alignItems="center" spacing={0.75} sx={{ flex: '0 0 38%', minWidth: 0 }}>
+                    <Box sx={{ width: 6, height: 6, borderRadius: '50%', bgcolor: dotColor, flexShrink: 0 }} />
+                    <Typography variant="caption" fontFamily="monospace" fontWeight={600} noWrap>{el.idShort}</Typography>
+                    {el.required && (
+                      <Typography variant="caption" color="error.main" fontWeight={700} sx={{ fontSize: 10, flexShrink: 0 }}>REQ</Typography>
+                    )}
+                  </Stack>
+
+                  {/* Value column */}
+                  <Box sx={{ flex: 1, minWidth: 0 }} onClick={(e) => { if (!isContainer) e.stopPropagation(); }}>
+                    {el.type === 'Property' && (
+                      <TextField
+                        variant="standard"
+                        fullWidth
+                        value={typeof el.value === 'string' ? el.value : ''}
+                        onChange={(e) => onUpdateElement(sm.id, ei, 'value', e.target.value)}
+                        placeholder={`valore (${el.valueType || 'string'})…`}
+                        inputProps={{ 'aria-label': `valore ${el.idShort}` }}
+                        sx={cellInputSx}
+                      />
+                    )}
+                    {el.type === 'MultiLanguageProperty' && (
+                      <Stack spacing={0.25}>
+                        {(['en', 'it', 'de'] as const).map(lang => (
+                          <Stack key={lang} direction="row" alignItems="center" spacing={0.75}>
+                            <Typography variant="caption" fontFamily="monospace" color="text.secondary" sx={{ width: 18, flexShrink: 0 }}>{lang}</Typography>
+                            <TextField
+                              variant="standard"
+                              fullWidth
+                              value={mlv[lang] || ''}
+                              onChange={(e) => onUpdateElement(sm.id, ei, 'value', { ...mlv, [lang]: e.target.value })}
+                              placeholder={`testo (${lang})…`}
+                              inputProps={{ 'aria-label': `${el.idShort} ${lang}`, style: { fontSize: 11, paddingTop: 2, paddingBottom: 2 } }}
+                            />
+                          </Stack>
+                        ))}
+                      </Stack>
+                    )}
+                    {isContainer && (
+                      <Typography variant="caption" color="text.secondary" fontFamily="monospace">
+                        {(el.children?.length ?? 0)} {(el.children?.length ?? 0) === 1 ? 'elemento' : 'elementi'}
+                      </Typography>
+                    )}
+                    {!isContainer && el.type !== 'Property' && el.type !== 'MultiLanguageProperty' && (
+                      <Typography variant="caption" color="text.secondary">—</Typography>
+                    )}
+                  </Box>
+
+                  {/* Type column */}
+                  <Stack direction="row" alignItems="center" spacing={0.5} sx={{ flex: '0 0 140px' }}>
+                    {el.type === 'Property' ? (
+                      <Select
+                        variant="standard"
+                        fullWidth
+                        value={el.valueType || 'xs:string'}
+                        onChange={(e) => onUpdateElement(sm.id, ei, 'valueType', e.target.value)}
+                        onClick={(e) => e.stopPropagation()}
+                        sx={{ '& .MuiSelect-select': { fontFamily: 'monospace', fontSize: 11, py: 0.25 } }}
+                      >
+                        {XSD_TYPES.map(t => (
+                          <MenuItem key={t} value={t} sx={{ fontFamily: 'monospace', fontSize: 11 }}>{t}</MenuItem>
+                        ))}
+                      </Select>
+                    ) : (
+                      <Typography variant="caption" color="text.secondary" fontFamily="monospace" noWrap sx={{ flex: 1 }}>{el.type}</Typography>
+                    )}
+                    {isContainer && (
+                      <ExpandMoreRounded
+                        sx={{
+                          color: 'text.secondary',
+                          transform: elOpen ? 'rotate(180deg)' : 'rotate(0deg)',
+                          transition: 'transform 0.2s',
+                          fontSize: 16,
+                          flexShrink: 0,
+                        }}
+                      />
+                    )}
+                  </Stack>
+                </Stack>
+
+                {/* Container children (indented sub-rows, recursive) */}
+                {isContainer && el.children && (
+                  <Collapse in={elOpen}>
+                    <Box sx={{ pl: 4, pr: 2.25, pb: 1 }}>
+                      {el.children.length > 0 ? (
+                        <ChildRows
+                          smId={sm.id}
+                          elIdx={ei}
+                          children={el.children}
+                          path={[]}
+                          expanded={expandedElements}
+                          onToggle={onToggleElement}
+                          onUpdate={onUpdateChild}
+                        />
+                      ) : (
+                        <Typography variant="caption" fontFamily="monospace" color="text.secondary">vuoto</Typography>
+                      )}
+                    </Box>
+                  </Collapse>
+                )}
+
+                {/* Per-element validation messages */}
+                {elErrors.map((f, fi) => (
+                  <Stack key={fi} direction="row" alignItems="center" spacing={0.5} sx={{ px: 2.25, pb: 0.5 }}>
+                    <ErrorOutlineRounded sx={{ fontSize: 13, color: 'error.main', flexShrink: 0 }} />
+                    <Typography variant="caption" color="error.main" fontFamily="monospace">{f.msg}</Typography>
+                  </Stack>
+                ))}
+                {elWarnings.map((f, fi) => (
+                  <Stack key={fi} direction="row" alignItems="center" spacing={0.5} sx={{ px: 2.25, pb: 0.5 }}>
+                    <WarningAmberRounded sx={{ fontSize: 13, color: 'warning.main', flexShrink: 0 }} />
+                    <Typography variant="caption" color="warning.main" fontFamily="monospace">{f.msg}</Typography>
+                  </Stack>
+                ))}
+              </Box>
+            );
+          })}
+          {!elements.length && (
+            <Typography variant="caption" fontFamily="monospace" color="text.secondary" textAlign="center" display="block" py={2.5}>
+              Submodel vuoto
+            </Typography>
+          )}
+        </Box>
+      )}
+    </Paper>
+  );
+});
+
 export default function AASEditor() {
   const {
     selectedModelId, setSelectedModelId,
@@ -233,19 +568,40 @@ export default function AASEditor() {
   const [validationExpanded, setValidationExpanded] = useState(false);
   const [editingSmIdx, setEditingSmIdx] = useState<Set<number>>(new Set());
   const [railCollapsed, setRailCollapsed] = useState(false);
-  const [aasDetailsAnchor, setAasDetailsAnchor] = useState<null | HTMLElement>(null);
 
   useEffect(() => {
     setValidationResult(null);
     setValidationExpanded(false);
   }, [selectedModelId]);
 
-  const toggleEditSm = (idx: number) =>
+  // Stable callbacks: passed to the memoized SubmodelCard, so they must not be
+  // recreated on every render or the memo is useless.
+  const toggleEditSm = useCallback((idx: number) =>
     setEditingSmIdx(prev => {
       const next = new Set(prev);
-      next.has(idx) ? next.delete(idx) : next.add(idx);
+      if (next.has(idx)) next.delete(idx); else next.add(idx);
+      return next;
+    }), []);
+
+  const toggleSubmodel = useCallback((id: string) => {
+    setExpandedSubmodels(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
       return next;
     });
+  }, []);
+
+  const toggleElement = useCallback((key: string) => {
+    setExpandedElements(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+  }, []);
 
   const versionDocumentId = currentModel?.documentId ?? null;
 
@@ -293,17 +649,21 @@ export default function AASEditor() {
     URL.revokeObjectURL(url);
   }, [aasIdShort, aasAssetId, aasDescription, currentModel?.assetKind, submodels]);
 
-  // Register secondary menu handlers
+  // Register secondary menu handlers ONCE. handleValidateInline changes on every
+  // edit; registering it directly re-set the DialogContext state on each keystroke
+  // and re-rendered the whole app. Route through a ref instead.
+  const validateRef = useRef(handleValidateInline);
+  useEffect(() => { validateRef.current = handleValidateInline; }, [handleValidateInline]);
   useEffect(() => {
     setHandlers({
-      onValidateAAS: handleValidateInline,
+      onValidateAAS: () => validateRef.current(),
       onConnectServer: () => setShowConnectDialog(true),
       onAddSubmodel: () => setShowAddDialog(true),
       onAddEntity: () => setShowAddEntityDialog(true),
       onExportAASX: () => setShowExportDialog(true),
     });
     return () => setHandlers({});
-  }, [setHandlers, handleExport, handleValidateInline]);
+  }, [setHandlers]);
 
   // Keyboard accelerators: Ctrl/Cmd+S = commit, Ctrl/Cmd+Enter = validate.
   useEffect(() => {
@@ -405,26 +765,6 @@ export default function AASEditor() {
     );
   }
 
-  const toggleSubmodel = (id: string) => {
-    setExpandedSubmodels(prev => {
-      const next = new Set(prev);
-      if (next.has(id)) {
-        next.delete(id);
-      } else {
-        next.add(id);
-      }
-      return next;
-    });
-  };
-
-  const toggleElement = (key: string) => {
-    setExpandedElements(prev => {
-      const next = new Set(prev);
-      next.has(key) ? next.delete(key) : next.add(key);
-      return next;
-    });
-  };
-
   const stats: [string, number][] = [
     ['Submodels', submodels.length],
     ['Properties', submodels.flatMap(s => s.elements).filter(e => e.type === 'Property').length],
@@ -476,6 +816,7 @@ export default function AASEditor() {
               {availableModels.map(m => {
                 const selected = m.id === selectedModelId;
                 const name = m.idShort.replace('AAS_', '');
+                const showInfo = selected && !railCollapsed;
                 return (
                   <Tooltip key={m.id} title={railCollapsed ? name : ''} placement="right" arrow disableHoverListener={!railCollapsed}>
                     <Box
@@ -485,12 +826,8 @@ export default function AASEditor() {
                       onClick={() => setSelectedModelId(m.id)}
                       onKeyDown={activateOnKey(() => setSelectedModelId(m.id))}
                       sx={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 1,
                         px: railCollapsed ? 0 : 1,
                         py: 0.75,
-                        justifyContent: railCollapsed ? 'center' : 'flex-start',
                         borderRadius: 1,
                         cursor: 'pointer',
                         color: selected ? 'primary.main' : 'text.primary',
@@ -498,11 +835,55 @@ export default function AASEditor() {
                         '&:hover': { bgcolor: 'action.hover' },
                       }}
                     >
-                      <Inventory2Rounded sx={{ fontSize: 18, flexShrink: 0, color: selected ? 'primary.main' : 'text.secondary' }} />
-                      {!railCollapsed && (
-                        <Typography variant="body2" noWrap fontFamily="monospace" fontWeight={selected ? 600 : 400} sx={{ minWidth: 0 }}>
-                          {name}
-                        </Typography>
+                      <Stack
+                        direction="row"
+                        alignItems="center"
+                        spacing={1}
+                        justifyContent={railCollapsed ? 'center' : 'flex-start'}
+                      >
+                        <Inventory2Rounded sx={{ fontSize: 18, flexShrink: 0, color: selected ? 'primary.main' : 'text.secondary' }} />
+                        {!railCollapsed && (
+                          <Typography variant="body2" noWrap fontFamily="monospace" fontWeight={selected ? 600 : 400} sx={{ flex: 1, minWidth: 0 }}>
+                            {name}
+                          </Typography>
+                        )}
+                        {showInfo && (
+                          <Tooltip title="Elimina modello" arrow>
+                            <IconButton
+                              size="small"
+                              aria-label={`Elimina ${name}`}
+                              onClick={(e) => { e.stopPropagation(); setShowDeleteConfirm(true); }}
+                              sx={{ 
+                                flexShrink: 0, my: -0.5, 
+                                color: 'error.main',
+                                backgroundColor: 'background.default' }}
+                            >
+                              <DeleteRounded 
+                              sx={{ 
+                                color: 'error.main'
+                              }} />
+                            </IconButton>
+                          </Tooltip>
+                        )}
+                      </Stack>
+                      {/* Model description, inline under the selected row (replaces
+                          the old "Dettagli" popover in the toolbar) */}
+                      {showInfo && m.description && (
+                        <Box sx={{ mt: 0.5, pl: 3.25 }}>
+                          <Typography
+                            variant="caption"
+                            color="text.secondary"
+                            display="block"
+                            sx={{
+                              display: '-webkit-box',
+                              WebkitLineClamp: 3,
+                              WebkitBoxOrient: 'vertical',
+                              overflow: 'hidden',
+                            }}
+                          >
+                            {m.description}
+                          </Typography>
+                        </Box>
                       )}
                     </Box>
                   </Tooltip>
@@ -592,51 +973,9 @@ export default function AASEditor() {
                   <AccountTreeRounded sx={{ fontSize: 16, mr: 0.5 }} /> Grafo
                 </ToggleButton>
               </ToggleButtonGroup>
-
-              <Button
-                variant="outlined"
-                size="small"
-                startIcon={<TuneRounded />}
-                onClick={(e) => setAasDetailsAnchor(e.currentTarget)}
-              >
-                Dettagli
-              </Button>
-
-              <Button
-                variant={showHistory ? 'contained' : 'outlined'}
-                size="small"
-                startIcon={<HistoryRounded />}
-                onClick={() => setShowHistory(v => !v)}
-              >
-                Cronologia
-              </Button>
-
-              <Tooltip title="Salva commit (Ctrl+S)" arrow>
-                <span>
-                  <Button
-                    variant="contained"
-                    size="small"
-                    startIcon={isSaving ? <CircularProgress size={14} color="inherit" /> : <CommitRounded />}
-                    onClick={() => setShowCommitDialog(true)}
-                    disabled={isSaving || (!currentModel.dirty && Boolean(currentModel.documentId))}
-                  >
-                    Commit
-                  </Button>
-                </span>
-              </Tooltip>
-
-              <Button
-                variant="outlined"
-                color="error"
-                size="small"
-                startIcon={<DeleteRounded />}
-                onClick={() => setShowDeleteConfirm(true)}
-              >
-                Elimina
-              </Button>
             </Stack>
 
-            {/* Metadata row */}
+            {/* Metadata row — actions aligned right */}
             <Stack direction="row" alignItems="center" spacing={2} useFlexGap flexWrap="wrap" mt={1}>
               <Stack direction="row" alignItems="center" spacing={0.75} sx={{ minWidth: 0 }}>
                 <Typography variant="caption" color="text.secondary" sx={{ flexShrink: 0 }}>globalAssetId</Typography>
@@ -656,6 +995,32 @@ export default function AASEditor() {
                   <Box component="span" sx={{ color: 'primary.main', fontFamily: 'monospace', fontWeight: 600 }}>{v}</Box>
                 </Typography>
               ))}
+
+              {/* Single flex item so the two actions never wrap apart */}
+              <Stack direction="row" spacing={1} sx={{ ml: 'auto', flexShrink: 0 }}>
+                <Button
+                  variant={showHistory ? 'contained' : 'outlined'}
+                  size="small"
+                  startIcon={<HistoryRounded />}
+                  onClick={() => setShowHistory(v => !v)}
+                >
+                  Cronologia
+                </Button>
+
+                <Tooltip title="Salva commit (Ctrl+S)" arrow>
+                  <span>
+                    <Button
+                      variant="contained"
+                      size="small"
+                      startIcon={isSaving ? <CircularProgress size={14} color="inherit" /> : <CommitRounded />}
+                      onClick={() => setShowCommitDialog(true)}
+                      disabled={isSaving || (!currentModel.dirty && Boolean(currentModel.documentId))}
+                    >
+                      Commit
+                    </Button>
+                  </span>
+                </Tooltip>
+              </Stack>
             </Stack>
           </Box>
 
@@ -694,79 +1059,6 @@ export default function AASEditor() {
               </MenuItem>
             ))}
           </Menu>
-
-          {/* Dettagli AAS popover (relocates the old fixed properties column) */}
-          <Popover
-            open={Boolean(aasDetailsAnchor)}
-            anchorEl={aasDetailsAnchor}
-            onClose={() => setAasDetailsAnchor(null)}
-            anchorOrigin={{ horizontal: 'right', vertical: 'bottom' }}
-            transformOrigin={{ horizontal: 'right', vertical: 'top' }}
-            slotProps={{ paper: { sx: { mt: 0.5, width: 340 } } }}
-          >
-            <Box sx={{ p: 2 }}>
-              <Typography variant="overline" color="text.secondary" display="block" mb={1}>Dettagli AAS</Typography>
-              <Stack spacing={1.5}>
-                <Box>
-                  <FormLabel sx={{ fontSize: 10, mb: 0.5, display: 'block' }}>description</FormLabel>
-                  {/* Frame replicating the theme's OutlinedInput so a standalone
-                      TextareaAutosize matches the other fields' style. */}
-                  <Box
-                    sx={(theme) => ({
-                      display: 'flex',
-                      padding: '8px 12px',
-                      color: (theme.vars || theme).palette.text.primary,
-                      borderRadius: `${theme.shape.borderRadius}px`,
-                      border: `1px solid ${(theme.vars || theme).palette.divider}`,
-                      backgroundColor: (theme.vars || theme).palette.background.default,
-                      transition: 'border 120ms ease-in',
-                      fontFamily: 'monospace',
-                      fontSize: 11,
-                      '&:hover': { borderColor: (theme.vars || theme).palette.grey[500] },
-                      '&:focus-within': {
-                        outline: theme.vars
-                          ? `3px solid rgba(${theme.vars.palette.primary.mainChannel} / 0.5)`
-                          : `3px solid ${alpha(theme.palette.primary.main, 0.5)}`,
-                        borderColor: (theme.vars || theme).palette.primary.light,
-                      },
-                    })}
-                  >
-                    <TextareaAutosize
-                      aria-label="description"
-                      minRows={2}
-                      maxRows={6}
-                      value={aasDescription}
-                      onChange={(e) => updateCurrentModel({ description: e.target.value })}
-                      style={{
-                        width: '100%',
-                        margin: 0,
-                        padding: 0,
-                        color: 'inherit',
-                        fontSize: 'inherit',
-                        fontFamily: 'inherit',
-                        lineHeight: 'inherit',
-                        border: 'none',
-                        outline: 'none',
-                        resize: 'none',
-                        background: 'transparent',
-                        display: 'block',
-                        boxSizing: 'border-box',
-                      }}
-                    />
-                  </Box>
-                </Box>
-                <Box>
-                  <FormLabel sx={{ fontSize: 10, mb: 0.5, display: 'block' }}>assetKind</FormLabel>
-                  <TextField
-                    value={currentModel.assetKind}
-                    size="small"
-                    fullWidth
-                    inputProps={{ 'aria-label': 'assetKind', readOnly: true, style: { fontFamily: 'monospace', fontSize: 11 } }}
-                  />
-                </Box>
-              </Stack>
-            </Box>
-          </Popover>
 
           {/* Body */}
           <Box
@@ -875,317 +1167,24 @@ export default function AASEditor() {
                   </Stack>
                 )}
 
-                {submodels.map((sm, idx) => {
-                  const isOpen = expandedSubmodels.has(sm.id);
-                  const isEditing = editingSmIdx.has(idx);
-                  const smPrefix = `SM[${idx}]`;
-                  const smErrors = validationResult?.errors.filter(f => f.path.startsWith(smPrefix)) ?? [];
-                  const smWarnings = validationResult?.warnings.filter(f => f.path.startsWith(smPrefix)) ?? [];
-                  const elements = sm.elements || [];
-                  return (
-                    <Paper
-                      key={sm.id}
-                      variant="outlined"
-                      sx={{
-                        mb: 1.5,
-                        overflow: 'hidden',
-                        ...(smErrors.length > 0 && { borderColor: 'error.main', borderWidth: 2 }),
-                        ...(smErrors.length === 0 && smWarnings.length > 0 && { borderColor: 'warning.main', borderWidth: 2 }),
-                      }}
-                    >
-                      {/* Submodel header */}
-                      <Stack
-                        direction="row"
-                        alignItems="center"
-                        spacing={1.25}
-                        role="button"
-                        tabIndex={0}
-                        aria-expanded={isOpen}
-                        sx={{
-                          px: 2.25, py: 1.75,
-                          cursor: 'pointer',
-                          borderBottom: isOpen || isEditing ? 1 : 0,
-                          borderColor: 'divider',
-                        }}
-                        onClick={() => toggleSubmodel(sm.id)}
-                        onKeyDown={activateOnKey(() => toggleSubmodel(sm.id))}
-                      >
-                        <WidgetsRounded sx={{ fontSize: 18, color: 'primary.main', flexShrink: 0 }} />
-                        <Box flex={1} minWidth={0}>
-                          <Typography variant="body2" fontWeight={600} noWrap>{sm.idShort}</Typography>
-                          <Typography variant="caption" color="text.secondary" fontFamily="monospace" display="block" noWrap>
-                            {sm.id}
-                          </Typography>
-                        </Box>
-                        <Chip
-                          size="small"
-                          label={`${elements.length} el`}
-                          color="primary"
-                          variant="outlined"
-                          sx={{ fontFamily: 'monospace', fontSize: 10 }}
-                        />
-                        {smErrors.length > 0 && (
-                          <Chip size="small" icon={<ErrorOutlineRounded />} label={smErrors.length} color="error" sx={{ fontSize: 10, height: 22 }} />
-                        )}
-                        {smWarnings.length > 0 && (
-                          <Chip size="small" icon={<WarningAmberRounded />} label={smWarnings.length} color="warning" sx={{ fontSize: 10, height: 22 }} />
-                        )}
-                        <IconButton
-                          size="small"
-                          aria-label="Modifica submodel"
-                          onClick={(e) => { e.stopPropagation(); toggleEditSm(idx); }}
-                          sx={{ color: isEditing ? 'primary.main' : 'text.secondary' }}
-                        >
-                          <EditRounded sx={{ fontSize: 15 }} />
-                        </IconButton>
-                        <IconButton
-                          size="small"
-                          aria-label="Elimina submodel"
-                          onClick={(e) => { e.stopPropagation(); setSubmodelToDelete(sm); }}
-                          sx={{ color: 'text.secondary' }}
-                        >
-                          <DeleteRounded sx={{ fontSize: 15 }} />
-                        </IconButton>
-                        <ExpandMoreRounded
-                          sx={{
-                            color: 'text.secondary',
-                            transform: isOpen ? 'rotate(180deg)' : 'rotate(0deg)',
-                            transition: 'transform 0.2s',
-                            fontSize: 18,
-                          }}
-                        />
-                      </Stack>
-
-                      {/* Submodel identity edit */}
-                      <Collapse in={isEditing}>
-                        <Box sx={{ px: 2.25, py: 1.75, borderBottom: isOpen ? 1 : 0, borderColor: 'divider', bgcolor: 'action.hover' }}>
-                          <Stack spacing={1.25}>
-                            <Stack direction="row" spacing={1.25}>
-                              <Box sx={{ flex: 1 }}>
-                                <FormLabel sx={{ fontSize: 10, mb: 0.5, display: 'block' }}>idShort</FormLabel>
-                                <TextField
-                                  size="small"
-                                  fullWidth
-                                  value={sm.idShort}
-                                  onChange={(e) => updateSubmodel(sm.id, { idShort: e.target.value })}
-                                  inputProps={{ 'aria-label': 'Submodel idShort', style: { fontFamily: 'monospace', fontSize: 11 } }}
-                                />
-                              </Box>
-                              <Box sx={{ flex: 2 }}>
-                                <FormLabel sx={{ fontSize: 10, mb: 0.5, display: 'block' }}>id (AAS instance IRI)</FormLabel>
-                                <TextField
-                                  size="small"
-                                  fullWidth
-                                  value={sm.id}
-                                  onChange={(e) => updateSubmodel(sm.id, { id: e.target.value })}
-                                  inputProps={{ 'aria-label': 'Submodel id (IRI)', style: { fontFamily: 'monospace', fontSize: 11 } }}
-                                />
-                              </Box>
-                            </Stack>
-                            <Box>
-                              <FormLabel sx={{ fontSize: 10, mb: 0.5, display: 'block' }}>semanticId</FormLabel>
-                              <TextField
-                                size="small"
-                                fullWidth
-                                value={sm.semanticId}
-                                onChange={(e) => updateSubmodel(sm.id, { semanticId: e.target.value })}
-                                inputProps={{ 'aria-label': 'Submodel semanticId', style: { fontFamily: 'monospace', fontSize: 11 } }}
-                              />
-                            </Box>
-                            <Box>
-                              <FormLabel sx={{ fontSize: 10, mb: 0.5, display: 'block' }}>Descrizione</FormLabel>
-                              <TextField
-                                size="small"
-                                fullWidth
-                                value={sm.description}
-                                onChange={(e) => updateSubmodel(sm.id, { description: e.target.value })}
-                                inputProps={{ 'aria-label': 'Submodel descrizione' }}
-                              />
-                            </Box>
-                          </Stack>
-                        </Box>
-                      </Collapse>
-
-                      {/* Elements — dense key/value table */}
-                      {isOpen && (
-                        <Box>
-                          {elements.length > 0 && (
-                            <Stack
-                              direction="row"
-                              sx={{ px: 2.25, py: 0.5, bgcolor: 'action.hover', borderBottom: 1, borderColor: 'divider' }}
-                            >
-                              <Typography variant="caption" color="text.secondary" fontWeight={600} sx={{ flex: '0 0 38%' }}>idShort</Typography>
-                              <Typography variant="caption" color="text.secondary" fontWeight={600} sx={{ flex: 1 }}>Valore</Typography>
-                              <Typography variant="caption" color="text.secondary" fontWeight={600} sx={{ flex: '0 0 140px' }}>Tipo</Typography>
-                            </Stack>
-                          )}
-
-                          {elements.map((el, ei) => {
-                            const isContainer = el.type === 'SubmodelElementCollection' || el.type === 'SubmodelElementList';
-                            const dotColor =
-                              isContainer ? 'warning.main' :
-                              el.type === 'Operation' ? 'info.main' : 'primary.main';
-                            const elKey = `${sm.id}:${ei}`;
-                            const elOpen = expandedElements.has(elKey);
-                            const elErrors = validationResult?.errors.filter(
-                              f => f.path.startsWith(smPrefix) && f.path.includes(`→ ${el.idShort}`)
-                            ) ?? [];
-                            const elWarnings = validationResult?.warnings.filter(
-                              f => f.path.startsWith(smPrefix) && f.path.includes(`→ ${el.idShort}`)
-                            ) ?? [];
-                            const mlv = typeof el.value === 'object' && el.value !== null ? el.value as Record<string, string> : {};
-                            return (
-                              <Box
-                                key={ei}
-                                sx={(theme) => ({
-                                  borderBottom: 1,
-                                  borderColor: 'divider',
-                                  ...(elErrors.length > 0 && { bgcolor: alpha(theme.palette.error.main, 0.06) }),
-                                  ...(elErrors.length === 0 && elWarnings.length > 0 && { bgcolor: alpha(theme.palette.warning.main, 0.06) }),
-                                })}
-                              >
-                                <Stack
-                                  direction="row"
-                                  alignItems="center"
-                                  spacing={1}
-                                  sx={{ px: 2.25, py: 0.5, minHeight: 40, '&:hover': { bgcolor: 'action.hover' } }}
-                                  onClick={isContainer ? () => toggleElement(elKey) : undefined}
-                                  {...(isContainer && {
-                                    role: 'button',
-                                    tabIndex: 0,
-                                    'aria-expanded': elOpen,
-                                    onKeyDown: activateOnKey(() => toggleElement(elKey)),
-                                    style: { cursor: 'pointer' },
-                                  })}
-                                >
-                                  {/* idShort column */}
-                                  <Stack direction="row" alignItems="center" spacing={0.75} sx={{ flex: '0 0 38%', minWidth: 0 }}>
-                                    <Box sx={{ width: 6, height: 6, borderRadius: '50%', bgcolor: dotColor, flexShrink: 0 }} />
-                                    <Typography variant="caption" fontFamily="monospace" fontWeight={600} noWrap>{el.idShort}</Typography>
-                                    {el.required && (
-                                      <Typography variant="caption" color="error.main" fontWeight={700} sx={{ fontSize: 10, flexShrink: 0 }}>REQ</Typography>
-                                    )}
-                                  </Stack>
-
-                                  {/* Value column */}
-                                  <Box sx={{ flex: 1, minWidth: 0 }} onClick={(e) => { if (!isContainer) e.stopPropagation(); }}>
-                                    {el.type === 'Property' && (
-                                      <TextField
-                                        variant="standard"
-                                        fullWidth
-                                        value={typeof el.value === 'string' ? el.value : ''}
-                                        onChange={(e) => updateElement(sm.id, ei, 'value', e.target.value)}
-                                        placeholder={`valore (${el.valueType || 'string'})…`}
-                                        inputProps={{ 'aria-label': `valore ${el.idShort}` }}
-                                        sx={cellInputSx}
-                                      />
-                                    )}
-                                    {el.type === 'MultiLanguageProperty' && (
-                                      <Stack spacing={0.25}>
-                                        {(['en', 'it', 'de'] as const).map(lang => (
-                                          <Stack key={lang} direction="row" alignItems="center" spacing={0.75}>
-                                            <Typography variant="caption" fontFamily="monospace" color="text.secondary" sx={{ width: 18, flexShrink: 0 }}>{lang}</Typography>
-                                            <TextField
-                                              variant="standard"
-                                              fullWidth
-                                              value={mlv[lang] || ''}
-                                              onChange={(e) => updateElement(sm.id, ei, 'value', { ...mlv, [lang]: e.target.value })}
-                                              placeholder={`testo (${lang})…`}
-                                              inputProps={{ 'aria-label': `${el.idShort} ${lang}`, style: { fontSize: 11, paddingTop: 2, paddingBottom: 2 } }}
-                                            />
-                                          </Stack>
-                                        ))}
-                                      </Stack>
-                                    )}
-                                    {isContainer && (
-                                      <Typography variant="caption" color="text.secondary" fontFamily="monospace">
-                                        {(el.children?.length ?? 0)} {(el.children?.length ?? 0) === 1 ? 'elemento' : 'elementi'}
-                                      </Typography>
-                                    )}
-                                    {!isContainer && el.type !== 'Property' && el.type !== 'MultiLanguageProperty' && (
-                                      <Typography variant="caption" color="text.secondary">—</Typography>
-                                    )}
-                                  </Box>
-
-                                  {/* Type column */}
-                                  <Stack direction="row" alignItems="center" spacing={0.5} sx={{ flex: '0 0 140px' }}>
-                                    {el.type === 'Property' ? (
-                                      <Select
-                                        variant="standard"
-                                        fullWidth
-                                        value={el.valueType || 'xs:string'}
-                                        onChange={(e) => updateElement(sm.id, ei, 'valueType', e.target.value)}
-                                        onClick={(e) => e.stopPropagation()}
-                                        sx={{ '& .MuiSelect-select': { fontFamily: 'monospace', fontSize: 11, py: 0.25 } }}
-                                      >
-                                        {XSD_TYPES.map(t => (
-                                          <MenuItem key={t} value={t} sx={{ fontFamily: 'monospace', fontSize: 11 }}>{t}</MenuItem>
-                                        ))}
-                                      </Select>
-                                    ) : (
-                                      <Typography variant="caption" color="text.secondary" fontFamily="monospace" noWrap sx={{ flex: 1 }}>{el.type}</Typography>
-                                    )}
-                                    {isContainer && (
-                                      <ExpandMoreRounded
-                                        sx={{
-                                          color: 'text.secondary',
-                                          transform: elOpen ? 'rotate(180deg)' : 'rotate(0deg)',
-                                          transition: 'transform 0.2s',
-                                          fontSize: 16,
-                                          flexShrink: 0,
-                                        }}
-                                      />
-                                    )}
-                                  </Stack>
-                                </Stack>
-
-                                {/* Container children (indented sub-rows, recursive) */}
-                                {isContainer && el.children && (
-                                  <Collapse in={elOpen}>
-                                    <Box sx={{ pl: 4, pr: 2.25, pb: 1 }}>
-                                      {el.children.length > 0 ? (
-                                        <ChildRows
-                                          smId={sm.id}
-                                          elIdx={ei}
-                                          children={el.children}
-                                          path={[]}
-                                          expanded={expandedElements}
-                                          onToggle={toggleElement}
-                                          onUpdate={updateChild}
-                                        />
-                                      ) : (
-                                        <Typography variant="caption" fontFamily="monospace" color="text.secondary">vuoto</Typography>
-                                      )}
-                                    </Box>
-                                  </Collapse>
-                                )}
-
-                                {/* Per-element validation messages */}
-                                {elErrors.map((f, fi) => (
-                                  <Stack key={fi} direction="row" alignItems="center" spacing={0.5} sx={{ px: 2.25, pb: 0.5 }}>
-                                    <ErrorOutlineRounded sx={{ fontSize: 13, color: 'error.main', flexShrink: 0 }} />
-                                    <Typography variant="caption" color="error.main" fontFamily="monospace">{f.msg}</Typography>
-                                  </Stack>
-                                ))}
-                                {elWarnings.map((f, fi) => (
-                                  <Stack key={fi} direction="row" alignItems="center" spacing={0.5} sx={{ px: 2.25, pb: 0.5 }}>
-                                    <WarningAmberRounded sx={{ fontSize: 13, color: 'warning.main', flexShrink: 0 }} />
-                                    <Typography variant="caption" color="warning.main" fontFamily="monospace">{f.msg}</Typography>
-                                  </Stack>
-                                ))}
-                              </Box>
-                            );
-                          })}
-                          {!elements.length && (
-                            <Typography variant="caption" fontFamily="monospace" color="text.secondary" textAlign="center" display="block" py={2.5}>
-                              Submodel vuoto
-                            </Typography>
-                          )}
-                        </Box>
-                      )}
-                    </Paper>
-                  );
-                })}
+                {submodels.map((sm, idx) => (
+                  <SubmodelCard
+                    key={sm.id}
+                    sm={sm}
+                    idx={idx}
+                    isOpen={expandedSubmodels.has(sm.id)}
+                    isEditing={editingSmIdx.has(idx)}
+                    validationResult={validationResult}
+                    expandedElements={expandedElements}
+                    onToggleSubmodel={toggleSubmodel}
+                    onToggleEditSm={toggleEditSm}
+                    onDeleteSubmodel={setSubmodelToDelete}
+                    onToggleElement={toggleElement}
+                    onUpdateSubmodel={updateSubmodel}
+                    onUpdateElement={updateElement}
+                    onUpdateChild={updateChild}
+                  />
+                ))}
 
                 </Box>{/* end scrollable content */}
 

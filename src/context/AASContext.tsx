@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect, useRef, useCallback, type ReactNode } from 'react';
+import { createContext, useContext, useState, useEffect, useRef, useCallback, useMemo, type ReactNode } from 'react';
 import { useApiWrapper } from '@/api/apiWrapper';
 
 // ═══════════════════════════════════
@@ -362,6 +362,10 @@ const AASContext = createContext<AASContextType | null>(null);
 
 export function AASProvider({ children }: { children: ReactNode }) {
   const api = useApiWrapper();
+  // useApiWrapper returns a fresh object every render; route calls through a ref
+  // so the callbacks below stay referentially stable.
+  const apiRef = useRef(api);
+  apiRef.current = api;
 
   const [loading, setLoading] = useState(true);
   const [availableModels, setAvailableModels] = useState<AASModel[]>(() => {
@@ -378,25 +382,43 @@ export function AASProvider({ children }: { children: ReactNode }) {
   // Keep a ref mirroring state so refreshModels can merge against the latest
   // working copy without re-subscribing on every change.
   const availableModelsRef = useRef(availableModels);
+  // Serializing every model on every keystroke froze typing on large AAS trees;
+  // debounce the write and flush on unload / unmount so nothing is lost.
+  const persistTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const persistNow = useCallback(() => {
+    if (persistTimer.current) {
+      clearTimeout(persistTimer.current);
+      persistTimer.current = null;
+    }
+    localStorage.setItem('aas_studio_models', JSON.stringify(availableModelsRef.current));
+  }, []);
   useEffect(() => {
     availableModelsRef.current = availableModels;
     if (!loading) {
-      localStorage.setItem('aas_studio_models', JSON.stringify(availableModels));
+      if (persistTimer.current) clearTimeout(persistTimer.current);
+      persistTimer.current = setTimeout(persistNow, 300);
     }
-  }, [availableModels, loading]);
+  }, [availableModels, loading, persistNow]);
+  useEffect(() => {
+    window.addEventListener('beforeunload', persistNow);
+    return () => {
+      window.removeEventListener('beforeunload', persistNow);
+      if (persistTimer.current) persistNow();
+    };
+  }, [persistNow]);
 
   // ── Load from API ──────────────────────────────────────────────────────────
   const refreshModels = useCallback(async (committedId?: string) => {
     setLoading(true);
     try {
-      const listRes = await api.get<{ total: number; documents: any[] }>('/v1/aas');
+      const listRes = await apiRef.current.get<{ total: number; documents: any[] }>('/v1/aas');
       const documents: any[] = listRes.data?.documents ?? [];
 
       const serverModels = await Promise.all(
         documents.map(async (doc) => {
           let submodels: SubmodelTemplate[] = [];
           try {
-            const ckRes = await api.get<{ content: { submodels?: SubmodelTemplate[] } | null }>(
+            const ckRes = await apiRef.current.get<{ content: { submodels?: SubmodelTemplate[] } | null }>(
               `/v1/aas/${doc.document_id}/checkout`
             );
             submodels = ckRes.data?.content?.submodels ?? [];
@@ -433,16 +455,16 @@ export function AASProvider({ children }: { children: ReactNode }) {
     } finally {
       setLoading(false);
     }
-  }, [api]);
+  }, []);
 
   useEffect(() => { refreshModels(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const currentModel = availableModels.find(m => m.id === selectedModelId) || availableModels[0];
-  
-  const currentVersion = currentModel?.versions[0] || {
+
+  const currentVersion = useMemo<AASVersion>(() => currentModel?.versions?.[0] || {
     version: '1.0.0', revision: 'A', date: new Date().toISOString(), status: 'Draft',
     author: 'System', changes: 'Model state', details: []
-  };
+  }, [currentModel]);
 
   const createModel = useCallback((data: { idShort: string; assetId: string; description: string; assetKind: AssetKind }) => {
     const id = `aas-${data.idShort.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${Date.now()}`;
@@ -454,6 +476,8 @@ export function AASProvider({ children }: { children: ReactNode }) {
       assetKind: data.assetKind,
       versions: [{ version: '1.0.0', revision: 'A', date: new Date().toISOString(), status: 'Draft', author: 'User', changes: 'Initial creation', details: [] }],
       submodels: [],
+      // Not persisted server-side yet: show "Non salvato" and survive refresh merges.
+      dirty: true,
     };
     setAvailableModels(prev => [...prev, newModel]);
     setSelectedModelId(id);
@@ -469,9 +493,9 @@ export function AASProvider({ children }: { children: ReactNode }) {
     setAvailableModels(next);
     setSelectedModelId(next[0]?.id ?? '');
     if (target.documentId) {
-      try { await api.delete(`/v1/aas/${target.documentId}`); } catch { /* local removal stands */ }
+      try { await apiRef.current.delete(`/v1/aas/${target.documentId}`); } catch { /* local removal stands */ }
     }
-  }, [selectedModelId, api]);
+  }, [selectedModelId]);
 
   const updateCurrentModel = useCallback((patch: Partial<AASModel>) => {
     setAvailableModels(prev => prev.map(m =>
@@ -556,23 +580,23 @@ export function AASProvider({ children }: { children: ReactNode }) {
     }));
 
     // 2. Se il modello è collegato al DB, sincronizza lo stato del commit HEAD
-    const model = availableModels.find(m => m.id === selectedModelId);
+    const model = availableModelsRef.current.find(m => m.id === selectedModelId);
     if (model?.documentId) {
       (async () => {
         try {
-          const docRes = await api.get<{ document: any; head: { commit_id: number } | null; refs: any[] }>(
+          const docRes = await apiRef.current.get<{ document: any; head: { commit_id: number } | null; refs: any[] }>(
             `/v1/aas/${model.documentId}`
           );
           const headCommitId = docRes.data?.head?.commit_id;
           if (headCommitId) {
-            await api.put(`/v1/aas/${model.documentId}/commits/${headCommitId}/status`, { status });
+            await apiRef.current.put(`/v1/aas/${model.documentId}/commits/${headCommitId}/status`, { status });
           }
         } catch {
           // Fallback silenzioso — lo stato è già salvato in localStorage
         }
       })();
     }
-  }, [selectedModelId, availableModels, api]);
+  }, [selectedModelId]);
 
   const importAas = useCallback((model: AASModel) => {
     const imported = { ...model, isImported: true };
@@ -584,30 +608,35 @@ export function AASProvider({ children }: { children: ReactNode }) {
     setSelectedModelId(imported.id);
   }, []);
 
+  const value = useMemo(() => ({
+    selectedModelId,
+    setSelectedModelId,
+    availableModels,
+    currentModel,
+    currentVersion,
+    loading,
+    createModel,
+    deleteModel,
+    updateCurrentModel,
+    updateVersionStatus,
+    addSubmodel,
+    removeSubmodel,
+    updateSubmodel,
+    updateElement,
+    updateChild,
+    importAas,
+    setSubmodels,
+    refreshModels,
+    clearDirty,
+  }), [
+    selectedModelId, availableModels, currentModel, currentVersion, loading,
+    createModel, deleteModel, updateCurrentModel, updateVersionStatus,
+    addSubmodel, removeSubmodel, updateSubmodel, updateElement, updateChild,
+    importAas, setSubmodels, refreshModels, clearDirty,
+  ]);
+
   return (
-    <AASContext.Provider
-      value={{
-        selectedModelId,
-        setSelectedModelId,
-        availableModels,
-        currentModel,
-        currentVersion,
-        loading,
-        createModel,
-        deleteModel,
-        updateCurrentModel,
-        updateVersionStatus,
-        addSubmodel,
-        removeSubmodel,
-        updateSubmodel,
-        updateElement,
-        updateChild,
-        importAas,
-        setSubmodels,
-        refreshModels,
-        clearDirty,
-      }}
-    >
+    <AASContext.Provider value={value}>
       {children}
     </AASContext.Provider>
   );

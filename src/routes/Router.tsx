@@ -1,4 +1,4 @@
-import { Routes, Route, Navigate } from 'react-router-dom';
+import { Routes, Route } from 'react-router-dom';
 import SignIn from '@/pages/public/SignIn/SignIn';
 import ProtectedRoute from '@/routes/ProtectedRoutes';
 import Dashboard from '@/pages/secure/Dashboard/Dashboard';
