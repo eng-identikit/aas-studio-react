@@ -39,7 +39,7 @@ import {
 } from '@/context/AASContext';
 import { useDialogContext } from '@/context/DialogContext';
 import { buildAasEnvironment, pyLiteral } from './aasEnvironment';
-import { runnerApi, DEBUG_SERVER_URL, type RunnerStatus } from '@/api/runnerApi';
+import { useAASRunner, type RunnerStatus } from '@/hooks/useAASRunner';
 
 // ═══════════════════════
 // GENERATION STEPS
@@ -62,6 +62,9 @@ const GEN_STEPS = [
 function q(s: string): string {
   return '"' + s.replace(/\\/g, '\\\\').replace(/"/g, '\\"') + '"';
 }
+
+const PANEL_MIN_W = 260;
+const PANEL_MAX_W = 640;
 
 function fmtUptime(s: number): string {
   if (s < 60) return s + 's';
@@ -729,7 +732,37 @@ export default function AASServer() {
   const isDarkMode = (mode === 'system' ? systemMode : mode) === 'dark';
   const ct = isDarkMode ? CODE_DARK : CODE_LIGHT;
 
-  // ── Runtime debug (aas-server-runner) ──
+  // ── Resizable left panel (drag the divider; width persisted) ──
+  const [panelWidth, setPanelWidth] = useState<number>(() => {
+    const saved = Number(localStorage.getItem('aas_server_panel_w'));
+    return saved >= PANEL_MIN_W && saved <= PANEL_MAX_W ? saved : 300;
+  });
+
+  const handlePanelResize = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startW = panelWidth;
+    const onMove = (ev: MouseEvent) => {
+      setPanelWidth(Math.min(PANEL_MAX_W, Math.max(PANEL_MIN_W, startW + ev.clientX - startX)));
+    };
+    const onUp = () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      setPanelWidth(w => {
+        localStorage.setItem('aas_server_panel_w', String(w));
+        return w;
+      });
+    };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+  }, [panelWidth]);
+
+  // ── Runtime debug (via aas-studio-api → aas-server-runner) ──
+  const runner = useAASRunner();
   const [runnerStatus, setRunnerStatus] = useState<RunnerStatus | null>(null);
   const [runnerReachable, setRunnerReachable] = useState<boolean | null>(null);
   const [runnerBusy, setRunnerBusy] = useState<'start' | 'stop' | null>(null);
@@ -739,30 +772,29 @@ export default function AASServer() {
   const logsEndRef = useRef<HTMLDivElement | null>(null);
 
   const isRunning = runnerStatus?.running === true;
+  const debugUrl = runnerStatus?.debugUrl ?? 'http://localhost:6789';
 
   useEffect(() => {
     let cancelled = false;
     const tick = async () => {
-      try {
-        const st = await runnerApi.status();
-        if (cancelled) return;
+      const res = await runner.status();
+      if (cancelled) return;
+      if (res.status === 'Success' && res.data) {
         setRunnerReachable(true);
-        setRunnerStatus(st);
-        if (st.running && showLogs) {
-          const lg = await runnerApi.logs(150);
-          if (!cancelled) setRunLogs(lg.lines);
+        setRunnerStatus(res.data);
+        if (res.data.running && showLogs) {
+          const lg = await runner.logs(150);
+          if (!cancelled && lg.status === 'Success' && lg.data) setRunLogs(lg.data.lines);
         }
-      } catch {
-        if (!cancelled) {
-          setRunnerReachable(false);
-          setRunnerStatus(null);
-        }
+      } else {
+        setRunnerReachable(false);
+        setRunnerStatus(null);
       }
     };
     tick();
     const id = setInterval(tick, 3000);
     return () => { cancelled = true; clearInterval(id); };
-  }, [showLogs]);
+  }, [showLogs]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     logsEndRef.current?.scrollIntoView({ block: 'end' });
@@ -772,41 +804,38 @@ export default function AASServer() {
     if (!currentModel) return;
     setRunnerBusy('start');
     setRunnerError('');
-    try {
-      const env = buildAasEnvironment(
-        currentModel.idShort,
-        currentModel.assetId,
-        currentVersion.version,
-        currentModel.assetKind,
-        currentModel.submodels,
-      );
-      const st = await runnerApi.start(env);
-      setRunnerStatus(st);
+    const env = buildAasEnvironment(
+      currentModel.idShort,
+      currentModel.assetId,
+      currentVersion.version,
+      currentModel.assetKind,
+      currentModel.submodels,
+    );
+    const res = await runner.start(env);
+    if (res.status === 'Success' && res.data) {
+      setRunnerStatus(res.data);
       setRunnerReachable(true);
       setShowLogs(true);
-    } catch (err) {
-      const offline = err instanceof TypeError;
-      setRunnerError(offline
-        ? 'Runner non raggiungibile su :6790 — avvialo con "python -m runner" in aas-server-runner/'
-        : (err instanceof Error ? err.message : 'Errore durante l\'avvio del server'));
-      if (offline) setRunnerReachable(false);
-    } finally {
-      setRunnerBusy(null);
+    } else if (res.statusCode === 503) {
+      setRunnerReachable(false);
+      setRunnerError(res.message || 'aas-server-runner non raggiungibile');
+    } else {
+      setRunnerError(res.message || 'Errore durante l\'avvio del server');
     }
-  }, [currentModel, currentVersion]);
+    setRunnerBusy(null);
+  }, [currentModel, currentVersion]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleStopServer = useCallback(async () => {
     setRunnerBusy('stop');
     setRunnerError('');
-    try {
-      const st = await runnerApi.stop();
-      setRunnerStatus(st);
-    } catch (err) {
-      setRunnerError(err instanceof Error ? err.message : 'Errore durante l\'arresto del server');
-    } finally {
-      setRunnerBusy(null);
+    const res = await runner.stop();
+    if (res.status === 'Success' && res.data) {
+      setRunnerStatus(res.data);
+    } else {
+      setRunnerError(res.message || 'Errore durante l\'arresto del server');
     }
-  }, []);
+    setRunnerBusy(null);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const runGeneration = () => {
     setGenerating(true);
@@ -894,10 +923,10 @@ export default function AASServer() {
   return (
     <Box sx={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
 
-      {/* ── Left Panel ── */}
+      {/* ── Left Panel (resizable) ── */}
       <Box
         sx={{
-          width: 300,
+          width: panelWidth,
           borderRight: 1,
           borderColor: 'divider',
           bgcolor: 'background.paper',
@@ -1000,12 +1029,31 @@ export default function AASServer() {
             </Button>
             {isRunning && (
               <Button
-                variant="outlined"
-                color="error"
-                startIcon={<StopRounded />}
+                variant="contained"
+                startIcon={runnerBusy === 'stop' ? <CircularProgress size={14} color="inherit" /> : <StopRounded />}
                 onClick={handleStopServer}
                 disabled={runnerBusy !== null}
-                sx={{ flexShrink: 0 }}
+                sx={{
+                  flexShrink: 0,
+                  fontWeight: 600,
+                  transition: 'transform .2s ease, box-shadow .2s ease',
+                  // '&&' beats the theme's dark-mode MuiButton override
+                  '&&': {
+                    color: '#fff',
+                    background: 'linear-gradient(135deg, #f87171 0%, #dc2626 100%)',
+                    boxShadow: '0 4px 14px rgba(239,68,68,.3)',
+                  },
+                  '&&:hover': {
+                    background: 'linear-gradient(135deg, #f87171 0%, #b91c1c 100%)',
+                    transform: 'translateY(-1px)',
+                    boxShadow: '0 8px 20px rgba(239,68,68,.4)',
+                  },
+                  '&&.Mui-disabled': {
+                    background: 'rgba(148,163,184,.25)',
+                    color: 'rgba(100,116,139,.8)',
+                    boxShadow: 'none',
+                  },
+                }}
               >
                 {runnerBusy === 'stop' ? 'Arresto…' : 'Stop'}
               </Button>
@@ -1072,7 +1120,7 @@ export default function AASServer() {
                   variant="text"
                   endIcon={<OpenInNewRounded sx={{ fontSize: 12 }} />}
                   component="a"
-                  href={`${DEBUG_SERVER_URL}/api/docs`}
+                  href={`${debugUrl}/api/docs`}
                   target="_blank"
                   rel="noopener noreferrer"
                   sx={{ minWidth: 0, px: 0.75 }}
@@ -1100,7 +1148,7 @@ export default function AASServer() {
           )}
 
           <Collapse in={isRunning && showLogs}>
-            <Box sx={{ mt: 1, p: 1.25, borderRadius: 1.5, bgcolor: TERMINAL_BG, border: `1px solid ${TERMINAL_BORDER}`, maxHeight: 180, overflowY: 'auto' }}>
+            <Box sx={{ mt: 1, p: 1.25, borderRadius: 1.5, bgcolor: TERMINAL_BG, border: `1px solid ${TERMINAL_BORDER}`, maxHeight: 280, overflowY: 'auto' }}>
               {runLogs.length === 0 ? (
                 <Typography variant="caption" color="text.disabled" fontFamily="monospace" fontSize={10}>
                   — nessun log —
@@ -1187,6 +1235,24 @@ export default function AASServer() {
           </Paper>
         )}
       </Box>
+
+      {/* ── Drag handle: resize the left panel ── */}
+      <Box
+        onMouseDown={handlePanelResize}
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="Ridimensiona pannello"
+        sx={{
+          width: 6,
+          ml: '-3px',
+          mr: '-3px',
+          flexShrink: 0,
+          cursor: 'col-resize',
+          zIndex: 2,
+          transition: 'background-color .15s ease',
+          '&:hover, &:active': { bgcolor: 'rgba(99,102,241,.35)' },
+        }}
+      />
 
       {/* ── Right: Code Panel (theme-aware editor) ── */}
       <Box sx={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', bgcolor: ct.bg, transition: 'background-color .25s ease' }}>
