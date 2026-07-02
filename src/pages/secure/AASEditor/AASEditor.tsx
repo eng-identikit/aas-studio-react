@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, KeyboardEvent } from 'react';
 import {
   Box,
   Button,
@@ -76,6 +76,11 @@ type EditorView = 'list' | 'graph';
 const XSD_TYPES: XsdValueType[] = ['xs:string', 'xs:int', 'xs:double', 'xs:float', 'xs:boolean', 'xs:date', 'xs:dateTime', 'xs:long', 'xs:short', 'xs:byte', 'xs:anyURI', 'xs:duration', 'xs:decimal'];
 
 const NO_SUBMODELS: SubmodelTemplate[] = [];
+
+// Make a click handler keyboard-operable on non-button elements (Enter/Space).
+const activateOnKey = (fn: () => void) => (e: KeyboardEvent) => {
+  if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fn(); }
+};
 
 export default function AASEditor() {
   const {
@@ -307,6 +312,7 @@ export default function AASEditor() {
           <Select
             value={selectedModelId}
             onChange={(e) => setSelectedModelId(e.target.value)}
+            inputProps={{ 'aria-label': 'Modello AAS' }}
             sx={{ fontFamily: 'monospace', fontSize: 11 }}
           >
             {availableModels.map(m => (
@@ -349,7 +355,7 @@ export default function AASEditor() {
         ) : (
           <Stack direction="row" alignItems="center" spacing={0.5}>
             <CheckRounded sx={{ fontSize: 14, color: 'success.main' }} />
-            <Typography variant="caption" color="text.disabled">Salvato</Typography>
+            <Typography variant="caption" color="text.secondary">Salvato</Typography>
           </Stack>
         )}
 
@@ -362,14 +368,14 @@ export default function AASEditor() {
           slotProps={{ paper: { sx: { minWidth: 220, mt: 0.5 } } }}
         >
           <Box sx={{ px: 2, pt: 1.25, pb: 0.75 }}>
-            <Typography variant="caption" color="text.disabled" fontWeight={700} textTransform="uppercase" letterSpacing={0.6}>
+            <Typography variant="caption" color="text.secondary" fontWeight={700} textTransform="uppercase" letterSpacing={0.6}>
               Stato commit locale
             </Typography>
           </Box>
           {([
             { status: 'Draft',      icon: <EditNoteRounded fontSize="small" />,      color: 'warning.main', desc: 'In lavorazione, modificabile' },
             { status: 'Active',     icon: <CheckCircleRounded fontSize="small" />,   color: 'success.main', desc: 'Approvato e in uso operativo' },
-            { status: 'Deprecated', icon: <ArchiveRounded fontSize="small" />,       color: 'text.disabled', desc: 'Sorpassato da versione più recente' },
+            { status: 'Deprecated', icon: <ArchiveRounded fontSize="small" />,       color: 'text.secondary', desc: 'Sorpassato da versione più recente' },
           ] as const).map(({ status, icon, color, desc }) => (
             <MenuItem
               key={status}
@@ -451,7 +457,7 @@ export default function AASEditor() {
             flexShrink: 0,
           }}
         >
-          <Typography variant="overline" color="text.disabled" display="block" mb={1.5}>
+          <Typography variant="overline" color="text.secondary" display="block" mb={1.5}>
             AAS Properties
           </Typography>
           <Stack spacing={1.5}>
@@ -529,7 +535,7 @@ export default function AASEditor() {
           </Stack>
 
           <Paper variant="outlined" sx={{ mt: 2.5, p: 1.5 }}>
-            <Typography variant="overline" color="text.disabled" display="block" mb={1}>
+            <Typography variant="overline" color="text.secondary" display="block" mb={1}>
               Stats
             </Typography>
             {([
@@ -608,11 +614,11 @@ export default function AASEditor() {
                       )}
                     </Box>
                     {(validationResult.errors.length + validationResult.warnings.length) > 0 && (
-                      <IconButton size="small" onClick={() => setValidationExpanded(e => !e)} sx={{ color: 'text.disabled' }}>
+                      <IconButton size="small" aria-label="Mostra dettagli validazione" onClick={() => setValidationExpanded(e => !e)} sx={{ color: 'text.secondary' }}>
                         <ExpandMoreRounded sx={{ fontSize: 18, transition: 'transform .2s', transform: validationExpanded ? 'rotate(180deg)' : 'none' }} />
                       </IconButton>
                     )}
-                    <IconButton size="small" onClick={() => setValidationResult(null)} sx={{ color: 'text.disabled' }}>
+                    <IconButton size="small" aria-label="Chiudi validazione" onClick={() => setValidationResult(null)} sx={{ color: 'text.secondary' }}>
                       <CloseRounded sx={{ fontSize: 16 }} />
                     </IconButton>
                   </Box>
@@ -630,7 +636,7 @@ export default function AASEditor() {
                             <Typography variant="caption" color={f.sev === 'error' ? 'error.main' : 'warning.main'} fontWeight={600} sx={{ display: 'block' }}>
                               {f.msg}
                             </Typography>
-                            <Typography variant="caption" color="text.disabled" fontFamily="monospace" sx={{ display: 'block' }}>
+                            <Typography variant="caption" color="text.secondary" fontFamily="monospace" sx={{ display: 'block' }}>
                               {f.path}
                             </Typography>
                           </Box>
@@ -644,8 +650,8 @@ export default function AASEditor() {
               {!submodels.length && !dragOver && (
                 <Stack alignItems="center" justifyContent="center" sx={{ height: '100%', minHeight: 200 }} spacing={0.75}>
                   <Typography fontSize={36}>🟩</Typography>
-                  <Typography variant="body2" fontWeight={500} color="text.disabled">Trascina un Submodel qui</Typography>
-                  <Typography variant="caption" fontFamily="monospace" color="text.disabled">oppure clicca + sotto</Typography>
+                  <Typography variant="body2" fontWeight={500} color="text.secondary">Trascina un Submodel qui</Typography>
+                  <Typography variant="caption" fontFamily="monospace" color="text.secondary">oppure clicca + sotto</Typography>
                 </Stack>
               )}
 
@@ -662,8 +668,8 @@ export default function AASEditor() {
                     sx={{
                       mb: 1.5,
                       overflow: 'hidden',
-                      ...(smErrors.length > 0 && { borderColor: 'error.main', borderLeftWidth: 3 }),
-                      ...(smErrors.length === 0 && smWarnings.length > 0 && { borderColor: 'warning.main', borderLeftWidth: 3 }),
+                      ...(smErrors.length > 0 && { borderColor: 'error.main', borderWidth: 2 }),
+                      ...(smErrors.length === 0 && smWarnings.length > 0 && { borderColor: 'warning.main', borderWidth: 2 }),
                     }}
                   >
                     {/* Submodel header */}
@@ -671,6 +677,9 @@ export default function AASEditor() {
                       direction="row"
                       alignItems="center"
                       spacing={1.25}
+                      role="button"
+                      tabIndex={0}
+                      aria-expanded={isOpen}
                       sx={{
                         px: 2.25, py: 1.75,
                         cursor: 'pointer',
@@ -678,11 +687,12 @@ export default function AASEditor() {
                         borderColor: 'divider',
                       }}
                       onClick={() => toggleSubmodel(sm.id)}
+                      onKeyDown={activateOnKey(() => toggleSubmodel(sm.id))}
                     >
                       <Typography fontSize={14}>🟩</Typography>
                       <Box flex={1} minWidth={0}>
                         <Typography variant="body2" fontWeight={600} noWrap>{sm.idShort}</Typography>
-                        <Typography variant="caption" color="text.disabled" fontFamily="monospace" display="block" noWrap>
+                        <Typography variant="caption" color="text.secondary" fontFamily="monospace" display="block" noWrap>
                           {sm.id}
                         </Typography>
                       </Box>
@@ -701,15 +711,17 @@ export default function AASEditor() {
                       )}
                       <IconButton
                         size="small"
+                        aria-label="Modifica submodel"
                         onClick={(e) => { e.stopPropagation(); toggleEditSm(idx); }}
-                        sx={{ color: isEditing ? 'primary.main' : 'text.disabled' }}
+                        sx={{ color: isEditing ? 'primary.main' : 'text.secondary' }}
                       >
                         <EditRounded sx={{ fontSize: 15 }} />
                       </IconButton>
                       <IconButton
                         size="small"
+                        aria-label="Elimina submodel"
                         onClick={(e) => { e.stopPropagation(); setSubmodelToDelete(sm); }}
-                        sx={{ color: 'text.disabled' }}
+                        sx={{ color: 'text.secondary' }}
                       >
                         <DeleteRounded sx={{ fontSize: 15 }} />
                       </IconButton>
@@ -802,6 +814,12 @@ export default function AASEditor() {
                               <Stack
                                 direction="row" alignItems="center" spacing={1} mb={el.type === 'Property' ? 1 : 0}
                                 onClick={isContainer ? () => toggleElement(elKey) : undefined}
+                                {...(isContainer && {
+                                  role: 'button',
+                                  tabIndex: 0,
+                                  'aria-expanded': elOpen,
+                                  onKeyDown: activateOnKey(() => toggleElement(elKey)),
+                                })}
                                 sx={isContainer ? { cursor: 'pointer' } : undefined}
                               >
                                 <Chip
@@ -821,7 +839,7 @@ export default function AASEditor() {
                                 )}
                                 <Box flex={1} />
                                 {el.semanticId && (
-                                  <Typography variant="caption" color="text.disabled" fontFamily="monospace" sx={{ fontSize: 9 }}>
+                                  <Typography variant="caption" color="text.secondary" fontFamily="monospace" sx={{ fontSize: 9 }}>
                                     {el.semanticId}
                                   </Typography>
                                 )}
@@ -867,7 +885,7 @@ export default function AASEditor() {
                                     const mlv = typeof el.value === 'object' && el.value !== null ? el.value as Record<string, string> : {};
                                     return (
                                       <Stack key={lang} direction="row" alignItems="center" spacing={0.75}>
-                                        <Typography variant="caption" fontFamily="monospace" color="text.disabled" sx={{ width: 20, flexShrink: 0 }}>{lang}</Typography>
+                                        <Typography variant="caption" fontFamily="monospace" color="text.secondary" sx={{ width: 20, flexShrink: 0 }}>{lang}</Typography>
                                         <TextField
                                           size="small"
                                           fullWidth
@@ -890,7 +908,7 @@ export default function AASEditor() {
                                       <Typography variant="caption" fontFamily="monospace" color="text.secondary" sx={{ width: 130, flexShrink: 0 }}>
                                         {ch.idShort || `[${ci}]`}
                                         {ch.required && <Box component="span" color="error.main"> *</Box>}
-                                        <Box component="span" color="text.disabled"> : {ch.type}</Box>
+                                        <Box component="span" color="text.secondary"> : {ch.type}</Box>
                                       </Typography>
                                       {ch.type === 'Property' && (
                                         <TextField
@@ -905,7 +923,7 @@ export default function AASEditor() {
                                     </Stack>
                                   ))}
                                   {!el.children.length && (
-                                    <Typography variant="caption" fontFamily="monospace" color="text.disabled">vuoto</Typography>
+                                    <Typography variant="caption" fontFamily="monospace" color="text.secondary">vuoto</Typography>
                                   )}
                                 </Box>
                                 </Collapse>
@@ -927,7 +945,7 @@ export default function AASEditor() {
                           );
                         })}
                         {!(sm.elements || []).length && (
-                          <Typography variant="caption" fontFamily="monospace" color="text.disabled" textAlign="center" display="block" py={2.5}>
+                          <Typography variant="caption" fontFamily="monospace" color="text.secondary" textAlign="center" display="block" py={2.5}>
                             Submodel vuoto
                           </Typography>
                         )}
