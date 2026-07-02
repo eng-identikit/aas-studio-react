@@ -66,12 +66,24 @@ function mapMlpValue(value: unknown): Record<string, string> {
 }
 
 function mapChild(el: Json): SubmodelElementChild {
-  return {
+  const type = asElementType(el.modelType);
+  const base = {
     idShort: String(el.idShort ?? ''),
-    type: asElementType(el.modelType),
+    type,
     valueType: el.valueType as XsdValueType | undefined,
     semanticId: extractSemanticId(el.semanticId),
     required: false,
+  };
+  if (type === 'SubmodelElementCollection' || type === 'SubmodelElementList') {
+    return {
+      ...base,
+      children: (Array.isArray(el.value) ? el.value : [])
+        .filter((c): c is Json => !!c && typeof c === 'object' && 'modelType' in (c as Json))
+        .map((c) => mapChild(c as Json)),
+    };
+  }
+  return {
+    ...base,
     value: el.value != null && typeof el.value !== 'object' ? String(el.value) : undefined,
   };
 }

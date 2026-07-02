@@ -141,9 +141,9 @@ export default function AddEntityDialog({ open, onClose, onAdd, onImport }: AddE
       <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
         <AddRounded />
         <Box>
-          <Typography variant="subtitle1" fontWeight={700} lineHeight={1.2}>Nuova Entità AAS</Typography>
+          <Typography variant="subtitle1" fontWeight={700} lineHeight={1.2}>Nuovo modello AAS</Typography>
           <Typography variant="caption" color="text.disabled" fontFamily="monospace">
-            {mode === 'create' ? 'Crea un nuovo oggetto AAS' : 'Importa da file JSON'}
+            {mode === 'create' ? 'Crea un nuovo modello AAS' : 'Importa da file JSON'}
           </Typography>
         </Box>
         <Box flexGrow={1} />

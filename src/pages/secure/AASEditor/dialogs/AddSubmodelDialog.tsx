@@ -29,7 +29,7 @@ import {
 } from '@mui/icons-material';
 
 import type { AxiosInstance } from 'axios';
-import type { SubmodelTemplate, SubmodelElement, ElementType, XsdValueType } from '@/context/AASContext';
+import type { SubmodelTemplate, SubmodelElement, SubmodelElementChild, ElementType, XsdValueType } from '@/context/AASContext';
 import { useApiManager } from '@/api/apiManger';
 
 // ── IDTA catalog ─────────────────────────────────────────────────────────────
@@ -128,44 +128,41 @@ function extractSemanticId(semanticId: unknown): string {
   return keys?.[0]?.value ?? '';
 }
 
-function mapAasElements(elements: unknown[]): SubmodelElement[] {
-  if (!Array.isArray(elements)) return [];
-  return elements.map((el: unknown): SubmodelElement => {
-    const e = el as Record<string, unknown>;
-    const modelType = String(e.modelType ?? '');
-    const base = {
-      idShort: String(e.idShort ?? ''),
-      semanticId: extractSemanticId(e.semanticId),
-      required: false,
-    };
-    if (modelType === 'SubmodelElementCollection') {
-      const raw = (e.value as unknown[]) ?? [];
-      return {
-        ...base,
-        type: 'SubmodelElementCollection',
-        children: raw
-          .filter((c): c is Record<string, unknown> => typeof c === 'object' && c !== null && 'idShort' in c)
-          .map(c => ({
-            idShort: String(c.idShort),
-            type: String(c.modelType ?? 'Property') as ElementType,
-            valueType: c.valueType as XsdValueType | undefined,
-            semanticId: extractSemanticId(c.semanticId),
-            required: false,
-          })),
-      };
-    }
-    if (modelType === 'MultiLanguageProperty') return { ...base, type: 'MultiLanguageProperty', value: {} };
-    if (modelType === 'File') return { ...base, type: 'File', contentType: String(e.contentType ?? ''), value: '' };
-    if (modelType === 'Blob') return { ...base, type: 'Blob', contentType: String(e.contentType ?? '') };
-    if (modelType === 'ReferenceElement') return { ...base, type: 'ReferenceElement' };
-    if (modelType === 'Operation') return { ...base, type: 'Operation' };
+function mapAasElement(el: unknown): SubmodelElement {
+  const e = el as Record<string, unknown>;
+  const modelType = String(e.modelType ?? '');
+  const base = {
+    idShort: String(e.idShort ?? ''),
+    semanticId: extractSemanticId(e.semanticId),
+    required: false,
+  };
+  // Both containers carry nested elements under `value`. List items have no
+  // idShort (AASd-120), so filter on `modelType`, not `idShort`, and recurse.
+  if (modelType === 'SubmodelElementCollection' || modelType === 'SubmodelElementList') {
+    const raw = (e.value as unknown[]) ?? [];
     return {
       ...base,
-      type: 'Property',
-      valueType: (e.valueType as XsdValueType) ?? 'xs:string',
-      value: '',
+      type: modelType as ElementType,
+      children: (Array.isArray(raw) ? raw : [])
+        .filter((c): c is Record<string, unknown> => typeof c === 'object' && c !== null && 'modelType' in c)
+        .map(mapAasElement) as SubmodelElementChild[],
     };
-  });
+  }
+  if (modelType === 'MultiLanguageProperty') return { ...base, type: 'MultiLanguageProperty', value: {} };
+  if (modelType === 'File') return { ...base, type: 'File', contentType: String(e.contentType ?? ''), value: '' };
+  if (modelType === 'Blob') return { ...base, type: 'Blob', contentType: String(e.contentType ?? '') };
+  if (modelType === 'ReferenceElement') return { ...base, type: 'ReferenceElement' };
+  if (modelType === 'Operation') return { ...base, type: 'Operation' };
+  return {
+    ...base,
+    type: 'Property',
+    valueType: (e.valueType as XsdValueType) ?? 'xs:string',
+    value: '',
+  };
+}
+
+function mapAasElements(elements: unknown[]): SubmodelElement[] {
+  return Array.isArray(elements) ? elements.map(mapAasElement) : [];
 }
 
 async function fetchSubmodelTemplate(entry: CatalogEntry): Promise<SubmodelTemplate> {
@@ -499,7 +496,7 @@ export default function AddSubmodelDialog({ open, onClose, onAdd }: AddSubmodelD
 
                 {!catalogLoading && !catalogError && filtered.map(entry => (
                   <Paper
-                    key={entry.id}
+                    key={entry.path}
                     variant="outlined"
                     onClick={() => setSelected(entry.id)}
                     sx={{

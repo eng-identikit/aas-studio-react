@@ -135,7 +135,7 @@ export default function MenuContent({ collapsed, onItemClick }: { collapsed: boo
         {
           text: 'addEntity',
           icon: (
-            <Tooltip title={t('sideMenu.menuContent.toolTips.addEntity', 'Nuova Entità AAS')} arrow>
+            <Tooltip title={t('sideMenu.menuContent.toolTips.addEntity', 'Nuovo modello AAS')} arrow>
               <AddBoxRounded />
             </Tooltip>
           ),

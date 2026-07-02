@@ -70,6 +70,7 @@ export interface SubmodelElementChild {
   semanticId?: string;
   required: boolean;
   value?: string;
+  children?: SubmodelElementChild[];
 }
 
 export interface SubmodelElement {
@@ -348,7 +349,7 @@ interface AASContextType {
   removeSubmodel: (id: string) => void;
   updateSubmodel: (smId: string, patch: Partial<SubmodelTemplate>) => void;
   updateElement: (smId: string, elIdx: number, field: string, value: string | Record<string, string>) => void;
-  updateChild: (smId: string, elIdx: number, childIdx: number, field: string, value: string) => void;
+  updateChild: (smId: string, elIdx: number, path: number[], field: string, value: string) => void;
   importAas: (model: AASModel) => void;
   setSubmodels: (sms: SubmodelTemplate[]) => void;
   /** Reload from the server. Pass the id of a just-committed model so its
@@ -521,7 +522,15 @@ export function AASProvider({ children }: { children: ReactNode }) {
     }));
   }, [selectedModelId]);
 
-  const updateChild = useCallback((smId: string, elIdx: number, childIdx: number, field: string, value: string) => {
+  const updateChild = useCallback((smId: string, elIdx: number, path: number[], field: string, value: string) => {
+    // Recursively rebuild the children chain along `path` touching only nodes on that path.
+    const setIn = (children: SubmodelElementChild[], [head, ...rest]: number[]): SubmodelElementChild[] => {
+      const next = [...children];
+      next[head] = rest.length === 0
+        ? { ...next[head], [field]: value }
+        : { ...next[head], children: setIn(next[head].children || [], rest) };
+      return next;
+    };
     setAvailableModels(prev => prev.map(m => {
       if (m.id !== selectedModelId) return m;
       return {
@@ -530,9 +539,7 @@ export function AASProvider({ children }: { children: ReactNode }) {
         submodels: m.submodels.map(s => {
           if (s.id !== smId) return s;
           const elements = [...s.elements];
-          const children = [...(elements[elIdx].children || [])];
-          children[childIdx] = { ...children[childIdx], [field]: value };
-          elements[elIdx] = { ...elements[elIdx], children };
+          elements[elIdx] = { ...elements[elIdx], children: setIn(elements[elIdx].children || [], path) };
           return { ...s, elements };
         })
       };
