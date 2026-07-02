@@ -55,7 +55,7 @@ import {
 import VersionHistoryDrawer from './components/VersionHistoryDrawer';
 import GraphView from './components/GraphView';
 
-import { useAASContext, XsdValueType, AASModel, SubmodelTemplate, validateAAS, ValidationResult } from '@/context/AASContext';
+import { useAASContext, XsdValueType, AASModel, SubmodelTemplate, SubmodelElementChild, validateAAS, ValidationResult } from '@/context/AASContext';
 import { useDialogContext } from '@/context/DialogContext';
 import { useAASVersioning } from '@/hooks/useAASVersioning';
 import { useCustomSnackbar } from '@/context/SnackbarContext';
@@ -92,6 +92,104 @@ const cellInputSx = {
 const activateOnKey = (fn: () => void) => (e: KeyboardEvent) => {
   if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fn(); }
 };
+
+// Recursively render a container's children as indented sub-rows. Containers
+// (Collection/List) can nest to any depth; `path` is the child-index chain from
+// the owning top-level element down to this row, used both as the expand key and
+// to target updateChild.
+interface ChildRowsProps {
+  smId: string;
+  elIdx: number;
+  children: SubmodelElementChild[];
+  path: number[];
+  expanded: Set<string>;
+  onToggle: (key: string) => void;
+  onUpdate: (smId: string, elIdx: number, path: number[], field: string, value: string) => void;
+}
+
+function ChildRows({ smId, elIdx, children, path, expanded, onToggle, onUpdate }: ChildRowsProps) {
+  return (
+    <>
+      {children.map((ch, ci) => {
+        const childPath = [...path, ci];
+        const isContainer = ch.type === 'SubmodelElementCollection' || ch.type === 'SubmodelElementList';
+        const key = `${smId}:${elIdx}:${childPath.join('.')}`;
+        const open = expanded.has(key);
+        return (
+          <Box key={ci}>
+            <Stack
+              direction="row"
+              alignItems="center"
+              spacing={0.75}
+              sx={{ py: 0.4 }}
+              {...(isContainer && {
+                role: 'button',
+                tabIndex: 0,
+                'aria-expanded': open,
+                style: { cursor: 'pointer' },
+                onClick: () => onToggle(key),
+                onKeyDown: activateOnKey(() => onToggle(key)),
+              })}
+            >
+              <Typography variant="caption" fontFamily="monospace" color="text.secondary" sx={{ width: 130, flexShrink: 0 }}>
+                {ch.idShort || `[${ci}]`}
+                {ch.required && <Box component="span" color="error.main"> *</Box>}
+                <Box component="span" color="text.secondary"> : {ch.type}</Box>
+              </Typography>
+              {ch.type === 'Property' && (
+                <TextField
+                  variant="standard"
+                  fullWidth
+                  value={ch.value || ''}
+                  onChange={(e) => onUpdate(smId, elIdx, childPath, 'value', e.target.value)}
+                  onClick={(e) => e.stopPropagation()}
+                  placeholder={ch.valueType ? `(${ch.valueType})` : 'valore…'}
+                  inputProps={{ 'aria-label': `${ch.idShort || ci} valore` }}
+                  sx={cellInputSx}
+                />
+              )}
+              {isContainer && (
+                <>
+                  <Typography variant="caption" color="text.secondary" fontFamily="monospace" sx={{ flex: 1 }}>
+                    {(ch.children?.length ?? 0)} {(ch.children?.length ?? 0) === 1 ? 'elemento' : 'elementi'}
+                  </Typography>
+                  <ExpandMoreRounded
+                    sx={{
+                      color: 'text.secondary',
+                      transform: open ? 'rotate(180deg)' : 'rotate(0deg)',
+                      transition: 'transform 0.2s',
+                      fontSize: 16,
+                      flexShrink: 0,
+                    }}
+                  />
+                </>
+              )}
+            </Stack>
+            {isContainer && (
+              <Collapse in={open}>
+                <Box sx={{ pl: 2 }}>
+                  {ch.children && ch.children.length > 0 ? (
+                    <ChildRows
+                      smId={smId}
+                      elIdx={elIdx}
+                      children={ch.children}
+                      path={childPath}
+                      expanded={expanded}
+                      onToggle={onToggle}
+                      onUpdate={onUpdate}
+                    />
+                  ) : (
+                    <Typography variant="caption" fontFamily="monospace" color="text.secondary">vuoto</Typography>
+                  )}
+                </Box>
+              </Collapse>
+            )}
+          </Box>
+        );
+      })}
+    </>
+  );
+}
 
 export default function AASEditor() {
   const {
@@ -1041,31 +1139,21 @@ export default function AASEditor() {
                                   </Stack>
                                 </Stack>
 
-                                {/* Container children (indented sub-rows) */}
+                                {/* Container children (indented sub-rows, recursive) */}
                                 {isContainer && el.children && (
                                   <Collapse in={elOpen}>
                                     <Box sx={{ pl: 4, pr: 2.25, pb: 1 }}>
-                                      {el.children.map((ch, ci) => (
-                                        <Stack key={ci} direction="row" alignItems="center" spacing={0.75} sx={{ py: 0.4 }}>
-                                          <Typography variant="caption" fontFamily="monospace" color="text.secondary" sx={{ width: 130, flexShrink: 0 }}>
-                                            {ch.idShort || `[${ci}]`}
-                                            {ch.required && <Box component="span" color="error.main"> *</Box>}
-                                            <Box component="span" color="text.secondary"> : {ch.type}</Box>
-                                          </Typography>
-                                          {ch.type === 'Property' && (
-                                            <TextField
-                                              variant="standard"
-                                              fullWidth
-                                              value={ch.value || ''}
-                                              onChange={(e) => updateChild(sm.id, ei, ci, 'value', e.target.value)}
-                                              placeholder={ch.valueType ? `(${ch.valueType})` : 'valore…'}
-                                              inputProps={{ 'aria-label': `${ch.idShort || ci} valore` }}
-                                              sx={cellInputSx}
-                                            />
-                                          )}
-                                        </Stack>
-                                      ))}
-                                      {!el.children.length && (
+                                      {el.children.length > 0 ? (
+                                        <ChildRows
+                                          smId={sm.id}
+                                          elIdx={ei}
+                                          children={el.children}
+                                          path={[]}
+                                          expanded={expandedElements}
+                                          onToggle={toggleElement}
+                                          onUpdate={updateChild}
+                                        />
+                                      ) : (
                                         <Typography variant="caption" fontFamily="monospace" color="text.secondary">vuoto</Typography>
                                       )}
                                     </Box>
