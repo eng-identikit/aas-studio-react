@@ -36,7 +36,7 @@ const Main = ({ children }: MainProps) => {
 
   // Controlla se siamo nella pagina calendar
   const isCalendarPage = location.pathname === '/calendar';
-  const isEditorPage = location.pathname === '/editor';
+  const isEditorPage = location.pathname === '/editor' || location.pathname === '/gateway';
 
   return (
     <DialogProvider>

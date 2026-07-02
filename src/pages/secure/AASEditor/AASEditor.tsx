@@ -61,7 +61,6 @@ import ValidationDialog from './dialogs/ValidationDialog';
 import AddSubmodelDialog from './dialogs/AddSubmodelDialog';
 import AddEntityDialog from './dialogs/AddEntityDialog';
 import CommitDialog from './dialogs/CommitDialog';
-import ConnectServerDialog from './dialogs/ConnectServerDialog';
 import ConfirmExportDialog from './dialogs/ConfirmExportDialog';
 import type { CommitStatus } from '@/hooks/useAASVersioning';
 import { buildAasEnvironment } from '@/utils/aas-builder';
@@ -672,7 +671,6 @@ export default function AASEditor() {
   const [submodelToDelete, setSubmodelToDelete] = useState<SubmodelTemplate | null>(null);
   const [showAddEntityDialog, setShowAddEntityDialog] = useState(false);
   const [showCommitDialog, setShowCommitDialog] = useState(false);
-  const [showConnectDialog, setShowConnectDialog] = useState(false);
   const [showExportDialog, setShowExportDialog] = useState(false);
   const [validationResult, setValidationResult] = useState<ValidationResult | null>(null);
   const [validationExpanded, setValidationExpanded] = useState(false);
@@ -767,7 +765,6 @@ export default function AASEditor() {
   useEffect(() => {
     setHandlers({
       onValidateAAS: () => validateRef.current(),
-      onConnectServer: () => setShowConnectDialog(true),
       onAddSubmodel: () => setShowAddDialog(true),
       onAddEntity: () => setShowAddEntityDialog(true),
       onExportAASX: () => setShowExportDialog(true),
@@ -1002,19 +999,6 @@ export default function AASEditor() {
             </Stack>
           </Box>
 
-          <Box sx={{ p: railCollapsed ? 0.5 : 1, borderTop: 1, borderColor: 'divider', flexShrink: 0 }}>
-            {railCollapsed ? (
-              <Tooltip title="Nuovo modello AAS" placement="right" arrow>
-                <IconButton size="small" onClick={() => setShowAddEntityDialog(true)} aria-label="Nuovo modello AAS" sx={{ width: '100%' }}>
-                  <AddRounded sx={{ fontSize: 20 }} />
-                </IconButton>
-              </Tooltip>
-            ) : (
-              <Button fullWidth size="small" variant="outlined" startIcon={<AddRounded />} onClick={() => setShowAddEntityDialog(true)} sx={{ borderStyle: 'dashed' }}>
-                Nuovo modello
-              </Button>
-            )}
-          </Box>
         </Box>
 
         {/* ── Detail: header + body ── */}
@@ -1316,7 +1300,6 @@ export default function AASEditor() {
         </Box>
       </Box>
 
-      <ConnectServerDialog open={showConnectDialog} onClose={() => setShowConnectDialog(false)} />
 
       <ConfirmExportDialog
         open={showExportDialog}

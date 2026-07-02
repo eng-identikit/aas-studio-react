@@ -21,6 +21,7 @@ import {
   SettingsRounded,
   LanRounded,
   FileDownloadRounded,
+  PlayCircleRounded,
 } from '@mui/icons-material';
 
 import { useDialogContext } from '@/context/DialogContext';
@@ -51,6 +52,15 @@ export default function MenuContent({ collapsed, onItemClick }: { collapsed: boo
         </Tooltip>
       ),
       path: '/editor',
+    },
+    {
+      text: 'aasGateway',
+      icon: (
+        <Tooltip title={t('sideMenu.menuContent.toolTips.aasGateway', 'AAS Gateway')} arrow>
+          <LanRounded />
+        </Tooltip>
+      ),
+      path: '/gateway',
     },
     {
       text: 'aasLifecycle',
@@ -100,18 +110,23 @@ export default function MenuContent({ collapsed, onItemClick }: { collapsed: boo
       ];
     }
 
-    if (currentPath === '/editor') {
+    if (currentPath === '/gateway') {
       return [
         {
           text: 'connectServer',
           icon: (
-            <Tooltip title={t('sideMenu.menuContent.toolTips.connectServer', 'Connetti AASX')} arrow>
+            <Tooltip title={t('sideMenu.menuContent.toolTips.connectServer', 'Connetti a un AAS server')} arrow>
               <LanRounded />
             </Tooltip>
           ),
           path: null,
           action: () => handlers.onConnectServer?.(),
         },
+      ];
+    }
+
+    if (currentPath === '/editor') {
+      return [
         {
           text: 'validateAAS',
           icon: (
@@ -171,6 +186,16 @@ export default function MenuContent({ collapsed, onItemClick }: { collapsed: boo
           ),
           path: null,
           action: () => handlers.onGenerateServer?.(),
+        },
+        {
+          text: 'runServer',
+          icon: (
+            <Tooltip title={t('sideMenu.menuContent.toolTips.runServer', 'Avvia server di debug (porta 6789)')} arrow>
+              <PlayCircleRounded />
+            </Tooltip>
+          ),
+          path: null,
+          action: () => handlers.onRunServer?.(),
         },
         {
           text: 'downloadCode',

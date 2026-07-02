@@ -1,8 +1,14 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
+import { useColorScheme } from '@mui/material/styles';
 import {
   Box,
   Button,
+  CircularProgress,
+  Collapse,
+  Divider,
+  Fade,
   FormControl,
+  LinearProgress,
   MenuItem,
   Paper,
   Select,
@@ -13,9 +19,16 @@ import {
 } from '@mui/material';
 import {
   BoltRounded,
+  CheckCircleRounded,
   ContentCopyRounded,
+  DnsRounded,
+  ExpandLessRounded,
+  ExpandMoreRounded,
   FileDownloadRounded,
+  OpenInNewRounded,
+  PlayArrowRounded,
   RefreshRounded,
+  StopRounded,
 } from '@mui/icons-material';
 
 import {
@@ -25,6 +38,8 @@ import {
   type SubmodelElementChild,
 } from '@/context/AASContext';
 import { useDialogContext } from '@/context/DialogContext';
+import { buildAasEnvironment, pyLiteral } from './aasEnvironment';
+import { runnerApi, DEBUG_SERVER_URL, type RunnerStatus } from '@/api/runnerApi';
 
 // ═══════════════════════
 // GENERATION STEPS
@@ -48,43 +63,131 @@ function q(s: string): string {
   return '"' + s.replace(/\\/g, '\\\\').replace(/"/g, '\\"') + '"';
 }
 
-function serializeElement(el: SubmodelElement | SubmodelElementChild, depth = 3): string {
-  const pad = '    '.repeat(depth);
-  const inner = '    '.repeat(depth + 1);
-  const lines: string[] = [
-    inner + '"modelType": ' + q(el.type),
-    inner + '"idShort": ' + q(el.idShort),
-  ];
-  if (el.semanticId) {
-    lines.push(
-      inner + '"semanticId": {"type": "ExternalReference", "keys": [{"type": "GlobalReference", "value": ' + q(el.semanticId) + '}]}',
+function fmtUptime(s: number): string {
+  if (s < 60) return s + 's';
+  const m = Math.floor(s / 60);
+  if (m < 60) return m + 'm ' + (s % 60) + 's';
+  return Math.floor(m / 60) + 'h ' + (m % 60) + 'm';
+}
+
+// ═══════════════════════
+// CODE VIEWER (editor look, theme-aware, lightweight Python/config highlighter)
+// ═══════════════════════
+
+// The runtime log console stays terminal-dark in both modes.
+const TERMINAL_BG = '#0d1117';
+const TERMINAL_BORDER = '#21262d';
+
+interface CodePalette {
+  bg: string;
+  border: string;
+  gutter: string;
+  text: string;
+  string: string;
+  comment: string;
+  keyword: string;
+  decorator: string;
+  number: string;
+  tab: string;
+  tabActive: string;
+  buttonBorder: string;
+  buttonHoverBg: string;
+  emptyTitle: string;
+  emptyCaption: string;
+}
+
+const CODE_DARK: CodePalette = {
+  bg: '#0d1117',
+  border: '#21262d',
+  gutter: '#484f58',
+  text: '#c9d1d9',
+  string: '#a5d6ff',
+  comment: '#8b949e',
+  keyword: '#ff7b72',
+  decorator: '#d2a8ff',
+  number: '#79c0ff',
+  tab: '#8b949e',
+  tabActive: '#e6edf3',
+  buttonBorder: '#30363d',
+  buttonHoverBg: 'rgba(177,186,196,.08)',
+  emptyTitle: '#e6edf3',
+  emptyCaption: '#8b949e',
+};
+
+const CODE_LIGHT: CodePalette = {
+  bg: '#fbfcfe',
+  border: '#d0d7de',
+  gutter: '#9ca6b0',
+  text: '#1f2328',
+  string: '#0a3069',
+  comment: '#6e7781',
+  keyword: '#cf222e',
+  decorator: '#8250df',
+  number: '#0550ae',
+  tab: '#57606a',
+  tabActive: '#1f2328',
+  buttonBorder: '#d0d7de',
+  buttonHoverBg: 'rgba(31,35,40,.06)',
+  emptyTitle: '#24292f',
+  emptyCaption: '#57606a',
+};
+
+const PY_TOKEN_RE =
+  /("""(?:[^"]|"(?!""))*"""|"(?:[^"\\\n]|\\.)*"|'(?:[^'\\\n]|\\.)*')|(#.*$)|\b(def|class|import|from|return|raise|if|elif|else|for|while|in|not|and|or|is|async|await|del|try|except|finally|with|as|pass|lambda|None|True|False)\b|(@[\w.]+)|\b(\d+(?:\.\d+)?)\b/gm;
+
+function highlightLine(line: string, lineKey: number, ct: CodePalette): React.ReactNode[] {
+  const nodes: React.ReactNode[] = [];
+  const re = new RegExp(PY_TOKEN_RE.source, 'gm');
+  let last = 0;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(line)) !== null) {
+    if (m.index > last) nodes.push(line.slice(last, m.index));
+    const [tok, str, com, kw, dec] = m;
+    const color = str != null ? ct.string
+      : com != null ? ct.comment
+      : kw != null ? ct.keyword
+      : dec != null ? ct.decorator
+      : ct.number;
+    nodes.push(
+      <span key={`${lineKey}-${m.index}`} style={{ color, fontStyle: com != null ? 'italic' : undefined }}>
+        {tok}
+      </span>,
     );
+    last = m.index + tok.length;
   }
-  if (el.type === 'Property') {
-    if (el.valueType) lines.push(inner + '"valueType": ' + q(el.valueType));
-    lines.push(inner + '"value": ""');
-  } else if (el.type === 'MultiLanguageProperty') {
-    lines.push(inner + '"value": [{"language": "en", "text": ""}]');
-  } else if (el.type === 'SubmodelElementCollection') {
-    const smEl = el as SubmodelElement;
-    if (smEl.children && smEl.children.length > 0) {
-      const childStr = smEl.children.map(c => serializeElement(c, depth + 2)).join(',\n');
-      lines.push(inner + '"value": [\n' + childStr + '\n' + inner + ']');
-    } else {
-      lines.push(inner + '"value": []');
-    }
-  } else if (el.type === 'Operation') {
-    lines.push(inner + '"inputVariables": []');
-    lines.push(inner + '"outputVariables": []');
-    lines.push(inner + '"inoutputVariables": []');
-  } else if (el.type === 'File' || el.type === 'Blob') {
-    const ct = ('contentType' in el && el.contentType) ? el.contentType : 'application/octet-stream';
-    lines.push(inner + '"contentType": ' + q(ct));
-    lines.push(inner + '"value": ""');
-  } else if (el.type === 'ReferenceElement') {
-    lines.push(inner + '"value": None');
-  }
-  return pad + '{\n' + lines.join(',\n') + '\n' + pad + '}';
+  if (last < line.length) nodes.push(line.slice(last));
+  return nodes;
+}
+
+function CodeView({ code, ct }: { code: string; ct: CodePalette }) {
+  const lines = code.split('\n');
+  return (
+    <Box sx={{ display: 'flex', fontFamily: "'JetBrains Mono', 'Fira Code', monospace", fontSize: 11.5, lineHeight: 1.75 }}>
+      <Box sx={{ userSelect: 'none', textAlign: 'right', pr: 1.5, mr: 1.5, borderRight: `1px solid ${ct.border}`, color: ct.gutter, flexShrink: 0 }}>
+        {lines.map((_, i) => <div key={i}>{i + 1}</div>)}
+      </Box>
+      <Box sx={{ whiteSpace: 'pre', color: ct.text, minWidth: 0, flex: 1, overflowX: 'auto' }}>
+        {lines.map((l, i) => (
+          <div key={i}>{l === '' ? ' ' : highlightLine(l, i, ct)}</div>
+        ))}
+      </Box>
+    </Box>
+  );
+}
+
+const FILE_DOT: Record<string, string> = {
+  main: '#4B8BBE',
+  models: '#4B8BBE',
+  docker: '#2496ED',
+  requirements: '#8b949e',
+  compose: '#f2c94c',
+};
+
+function logLineColor(line: string): string {
+  if (line.includes('ERROR') || line.includes('CRITICAL') || line.includes('Traceback')) return '#f85149';
+  if (line.includes('WARN')) return '#d29922';
+  if (line.includes('[runner]')) return '#79c0ff';
+  return '#9da5b4';
 }
 
 function generateMainPy(
@@ -94,32 +197,9 @@ function generateMainPy(
   assetKind: string,
   submodels: SubmodelTemplate[],
 ): string {
-  const aasUrn = 'urn:generated:' + aasIdShort;
-
-  const smRefs = submodels.map(sm => {
-    const smUrn = 'urn:generated:' + aasIdShort + ':' + sm.idShort;
-    return (
-      '            {"type": "ExternalReference", "keys": [{"type": "Submodel", "value": ' + q(smUrn) + '}]}'
-    );
-  }).join(',\n');
-
-  const smEntries = submodels.map(sm => {
-    const smUrn = 'urn:generated:' + aasIdShort + ':' + sm.idShort;
-    const elements = sm.elements.length
-      ? sm.elements.map(e => serializeElement(e)).join(',\n')
-      : '';
-    return (
-      '    ' + q(smUrn) + ': {\n' +
-      '        "id": ' + q(smUrn) + ',\n' +
-      '        "idShort": ' + q(sm.idShort) + ',\n' +
-      '        "description": [{"language": "en", "text": ' + q(sm.description || sm.idShort) + '}],\n' +
-      '        "semanticId": {"type": "ExternalReference", "keys": [{"type": "GlobalReference", "value": ' + q(sm.semanticId) + '}]},\n' +
-      '        "submodelElements": [\n' +
-      elements + '\n' +
-      '        ],\n' +
-      '    }'
-    );
-  }).join(',\n');
+  // Same environment the "Run Server" debug runner receives — the generated
+  // artifact and the debug server serve identical content by construction.
+  const env = buildAasEnvironment(aasIdShort, assetId, version, assetKind, submodels);
 
   return (
 `# Auto-generated AAS Server — ` + aasIdShort + `
@@ -150,23 +230,9 @@ app.add_middleware(
 
 # ── In-memory store ──────────────────────────────────────────────
 
-_SHELLS: dict[str, dict] = {
-    ` + q(aasIdShort) + `: {
-        "id": ` + q(aasUrn) + `,
-        "idShort": ` + q(aasIdShort) + `,
-        "assetInformation": {
-            "assetKind": ` + q(assetKind) + `,
-            "globalAssetId": ` + q(assetId) + `,
-        },
-        "submodels": [
-` + smRefs + `
-        ],
-    }
-}
+_SHELLS: dict[str, dict] = ` + pyLiteral(env.shells) + `
 
-_SUBMODELS: dict[str, dict] = {
-` + smEntries + `
-}
+_SUBMODELS: dict[str, dict] = ` + pyLiteral(env.submodels) + `
 
 _CONCEPT_DESCRIPTIONS: dict[str, dict] = {}
 
@@ -657,6 +723,91 @@ export default function AASServer() {
   const [activeTab, setActiveTab] = useState<CodeTab>('main');
   const [copied, setCopied] = useState(false);
 
+  // Code panel follows the app color scheme: GitHub-dark in dark mode,
+  // GitHub-light in light mode.
+  const { mode, systemMode } = useColorScheme();
+  const isDarkMode = (mode === 'system' ? systemMode : mode) === 'dark';
+  const ct = isDarkMode ? CODE_DARK : CODE_LIGHT;
+
+  // ── Runtime debug (aas-server-runner) ──
+  const [runnerStatus, setRunnerStatus] = useState<RunnerStatus | null>(null);
+  const [runnerReachable, setRunnerReachable] = useState<boolean | null>(null);
+  const [runnerBusy, setRunnerBusy] = useState<'start' | 'stop' | null>(null);
+  const [runnerError, setRunnerError] = useState('');
+  const [runLogs, setRunLogs] = useState<string[]>([]);
+  const [showLogs, setShowLogs] = useState(false);
+  const logsEndRef = useRef<HTMLDivElement | null>(null);
+
+  const isRunning = runnerStatus?.running === true;
+
+  useEffect(() => {
+    let cancelled = false;
+    const tick = async () => {
+      try {
+        const st = await runnerApi.status();
+        if (cancelled) return;
+        setRunnerReachable(true);
+        setRunnerStatus(st);
+        if (st.running && showLogs) {
+          const lg = await runnerApi.logs(150);
+          if (!cancelled) setRunLogs(lg.lines);
+        }
+      } catch {
+        if (!cancelled) {
+          setRunnerReachable(false);
+          setRunnerStatus(null);
+        }
+      }
+    };
+    tick();
+    const id = setInterval(tick, 3000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, [showLogs]);
+
+  useEffect(() => {
+    logsEndRef.current?.scrollIntoView({ block: 'end' });
+  }, [runLogs]);
+
+  const handleRunServer = useCallback(async () => {
+    if (!currentModel) return;
+    setRunnerBusy('start');
+    setRunnerError('');
+    try {
+      const env = buildAasEnvironment(
+        currentModel.idShort,
+        currentModel.assetId,
+        currentVersion.version,
+        currentModel.assetKind,
+        currentModel.submodels,
+      );
+      const st = await runnerApi.start(env);
+      setRunnerStatus(st);
+      setRunnerReachable(true);
+      setShowLogs(true);
+    } catch (err) {
+      const offline = err instanceof TypeError;
+      setRunnerError(offline
+        ? 'Runner non raggiungibile su :6790 — avvialo con "python -m runner" in aas-server-runner/'
+        : (err instanceof Error ? err.message : 'Errore durante l\'avvio del server'));
+      if (offline) setRunnerReachable(false);
+    } finally {
+      setRunnerBusy(null);
+    }
+  }, [currentModel, currentVersion]);
+
+  const handleStopServer = useCallback(async () => {
+    setRunnerBusy('stop');
+    setRunnerError('');
+    try {
+      const st = await runnerApi.stop();
+      setRunnerStatus(st);
+    } catch (err) {
+      setRunnerError(err instanceof Error ? err.message : 'Errore durante l\'arresto del server');
+    } finally {
+      setRunnerBusy(null);
+    }
+  }, []);
+
   const runGeneration = () => {
     setGenerating(true);
     setGenerated(false);
@@ -720,9 +871,9 @@ export default function AASServer() {
   ];
 
   useEffect(() => {
-    setHandlers({ onGenerateServer: runGeneration, onDownloadServer: handleDownload });
+    setHandlers({ onGenerateServer: runGeneration, onDownloadServer: handleDownload, onRunServer: handleRunServer });
     return () => setHandlers({});
-  }, [generated, activeTab]);
+  }, [generated, activeTab, handleRunServer]);
 
   // No model available (e.g. the server is unreachable / the session expired so
   // nothing loaded). Render an empty state instead of dereferencing currentModel.
@@ -758,12 +909,24 @@ export default function AASServer() {
           flexShrink: 0,
         }}
       >
-        <Box>
-          <Typography variant="subtitle1" fontWeight={700}>Server Generator</Typography>
-          <Typography variant="caption" color="text.disabled" fontFamily="monospace" display="block">
-            FastAPI · IDTA-01002-3-0
-          </Typography>
-        </Box>
+        <Stack direction="row" spacing={1.25} alignItems="center">
+          <Box
+            sx={{
+              width: 38, height: 38, borderRadius: 2, display: 'grid', placeItems: 'center',
+              color: '#fff', flexShrink: 0,
+              background: 'linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%)',
+              boxShadow: '0 4px 14px rgba(99,102,241,.35)',
+            }}
+          >
+            <DnsRounded sx={{ fontSize: 20 }} />
+          </Box>
+          <Box sx={{ minWidth: 0 }}>
+            <Typography variant="subtitle1" fontWeight={700} lineHeight={1.2}>Server Generator</Typography>
+            <Typography variant="caption" color="text.disabled" fontFamily="monospace" display="block">
+              FastAPI · IDTA-01002-3-0
+            </Typography>
+          </Box>
+        </Stack>
 
         <Box>
           <Typography variant="overline" color="text.disabled" display="block" mb={0.75}>AAS Model</Typography>
@@ -782,57 +945,236 @@ export default function AASServer() {
           </FormControl>
         </Box>
 
-        <Paper variant="outlined" sx={{ p: 1.75 }}>
-          <Typography variant="overline" color="text.disabled" display="block" mb={1.25}>source shell</Typography>
-          <Typography variant="body2" fontWeight={600} mb={0.75}>{aasIdShort}</Typography>
-          {([
-            ['submodels', submodels.length],
-            ['properties', submodels.flatMap(s => s.elements).filter(e => e.type === 'Property').length],
-            ['operations', submodels.flatMap(s => s.elements).filter(e => e.type === 'Operation').length],
-          ] as [string, number][]).map(([k, v]) => (
-            <Stack key={k} direction="row" justifyContent="space-between" mb={0.5}>
-              <Typography variant="caption" color="text.secondary" fontFamily="monospace">{k}</Typography>
-              <Typography variant="caption" color="primary.main" fontFamily="monospace">{v}</Typography>
-            </Stack>
-          ))}
+        <Paper variant="outlined" sx={{ p: 1.75, borderRadius: 2 }}>
+          <Typography variant="overline" color="text.disabled" display="block" mb={0.5}>source shell</Typography>
+          <Typography variant="body2" fontWeight={700} fontFamily="monospace" noWrap mb={1.25}>{aasIdShort}</Typography>
+          <Stack direction="row" spacing={1}>
+            {([
+              ['Submodels', submodels.length],
+              ['Properties', submodels.flatMap(s => s.elements).filter(e => e.type === 'Property').length],
+              ['Operations', submodels.flatMap(s => s.elements).filter(e => e.type === 'Operation').length],
+            ] as [string, number][]).map(([k, v]) => (
+              <Box key={k} sx={{ flex: 1, textAlign: 'center', py: 1, borderRadius: 1.5, bgcolor: 'action.hover' }}>
+                <Typography fontFamily="monospace" fontWeight={700} color="primary.main" fontSize={16} lineHeight={1.15}>
+                  {v}
+                </Typography>
+                <Typography variant="caption" color="text.secondary" sx={{ fontSize: 9.5 }}>
+                  {k}
+                </Typography>
+              </Box>
+            ))}
+          </Stack>
         </Paper>
+
+        {/* ── Runtime debug: primary action, above Generate and out of the box ── */}
+        <Stack spacing={1}>
+          <Stack direction="row" spacing={1}>
+            <Button
+              variant="contained"
+              startIcon={runnerBusy === 'start' ? <CircularProgress size={14} color="inherit" /> : <PlayArrowRounded />}
+              onClick={handleRunServer}
+              disabled={runnerBusy !== null || runnerReachable === false}
+              sx={{
+                flex: 1,
+                fontWeight: 600,
+                transition: 'transform .2s ease, box-shadow .2s ease',
+                // '&&' beats the theme's dark-mode MuiButton gradient override
+                '&&': {
+                  color: '#fff',
+                  background: 'linear-gradient(135deg, #34d399 0%, #059669 100%)',
+                  boxShadow: '0 4px 14px rgba(16,185,129,.3)',
+                },
+                '&&:hover': {
+                  background: 'linear-gradient(135deg, #34d399 0%, #047857 100%)',
+                  transform: 'translateY(-1px)',
+                  boxShadow: '0 8px 20px rgba(16,185,129,.4)',
+                },
+                '&&.Mui-disabled': {
+                  background: 'rgba(148,163,184,.25)',
+                  color: 'rgba(100,116,139,.8)',
+                  boxShadow: 'none',
+                },
+              }}
+            >
+              {runnerBusy === 'start' ? 'Avvio…' : isRunning ? 'Redeploy' : 'Run Server'}
+            </Button>
+            {isRunning && (
+              <Button
+                variant="outlined"
+                color="error"
+                startIcon={<StopRounded />}
+                onClick={handleStopServer}
+                disabled={runnerBusy !== null}
+                sx={{ flexShrink: 0 }}
+              >
+                {runnerBusy === 'stop' ? 'Arresto…' : 'Stop'}
+              </Button>
+            )}
+          </Stack>
+
+          <Stack direction="row" alignItems="center" spacing={1} useFlexGap flexWrap="wrap" sx={{ px: 0.25 }}>
+            <Box
+              sx={{
+                display: 'inline-flex', alignItems: 'center', gap: 0.6,
+                px: 1, py: 0.3, borderRadius: 5, flexShrink: 0,
+                bgcolor: isRunning
+                  ? 'rgba(34,197,94,.12)'
+                  : runnerReachable === false ? 'rgba(148,163,184,.15)' : 'rgba(234,179,8,.12)',
+              }}
+            >
+              <Box
+                sx={{
+                  width: 7, height: 7, borderRadius: '50%', flexShrink: 0,
+                  bgcolor: isRunning
+                    ? 'success.main'
+                    : runnerReachable === false ? 'text.disabled' : 'warning.main',
+                  ...(isRunning && {
+                    animation: 'aasLivePulse 1.6s ease-in-out infinite',
+                    '@keyframes aasLivePulse': {
+                      '0%, 100%': { boxShadow: '0 0 0 0 rgba(34,197,94,.55)' },
+                      '50%': { boxShadow: '0 0 0 5px rgba(34,197,94,0)' },
+                    },
+                  }),
+                }}
+              />
+              <Typography
+                variant="caption"
+                fontWeight={700}
+                sx={{
+                  fontSize: 10, letterSpacing: 0.8,
+                  color: isRunning
+                    ? 'success.main'
+                    : runnerReachable === false ? 'text.disabled' : 'warning.main',
+                }}
+              >
+                {isRunning ? 'LIVE' : runnerReachable === false ? 'OFFLINE' : 'IDLE'}
+              </Typography>
+            </Box>
+
+            {runnerReachable === false ? (
+              <Typography variant="caption" color="text.secondary" sx={{ flex: 1, minWidth: 0 }}>
+                avvia <Box component="span" fontFamily="monospace">python -m runner</Box> (:6790)
+              </Typography>
+            ) : isRunning ? (
+              <Typography variant="caption" fontFamily="monospace" color="success.main" noWrap sx={{ flex: 1, minWidth: 0 }}>
+                :{runnerStatus?.port} · up {fmtUptime(runnerStatus?.uptimeSeconds ?? 0)}
+              </Typography>
+            ) : (
+              <Typography variant="caption" fontFamily="monospace" color="text.secondary" noWrap sx={{ flex: 1, minWidth: 0 }}>
+                porta :6789
+              </Typography>
+            )}
+
+            {isRunning && (
+              <Stack direction="row" spacing={0.25} sx={{ flexShrink: 0 }}>
+                <Button
+                  size="small"
+                  variant="text"
+                  endIcon={<OpenInNewRounded sx={{ fontSize: 12 }} />}
+                  component="a"
+                  href={`${DEBUG_SERVER_URL}/api/docs`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  sx={{ minWidth: 0, px: 0.75 }}
+                >
+                  Docs
+                </Button>
+                <Button
+                  size="small"
+                  variant="text"
+                  color="inherit"
+                  endIcon={showLogs ? <ExpandLessRounded sx={{ fontSize: 14 }} /> : <ExpandMoreRounded sx={{ fontSize: 14 }} />}
+                  onClick={() => setShowLogs(v => !v)}
+                  sx={{ minWidth: 0, px: 0.75 }}
+                >
+                  Log
+                </Button>
+              </Stack>
+            )}
+          </Stack>
+
+          {runnerError && (
+            <Typography variant="caption" color="error.main">
+              {runnerError}
+            </Typography>
+          )}
+
+          <Collapse in={isRunning && showLogs}>
+            <Box sx={{ mt: 1, p: 1.25, borderRadius: 1.5, bgcolor: TERMINAL_BG, border: `1px solid ${TERMINAL_BORDER}`, maxHeight: 180, overflowY: 'auto' }}>
+              {runLogs.length === 0 ? (
+                <Typography variant="caption" color="text.disabled" fontFamily="monospace" fontSize={10}>
+                  — nessun log —
+                </Typography>
+              ) : (
+                runLogs.map((line, i) => {
+                  const sep = line.indexOf(' | ');
+                  const ts = sep > 0 ? line.slice(0, sep) : '';
+                  const rest = sep > 0 ? line.slice(sep + 3) : line;
+                  return (
+                    <Typography
+                      key={i}
+                      variant="caption"
+                      component="div"
+                      fontFamily="monospace"
+                      sx={{ fontSize: 10, lineHeight: 1.65, whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}
+                    >
+                      {ts && <Box component="span" sx={{ color: '#484f58' }}>{ts}  </Box>}
+                      <Box component="span" sx={{ color: logLineColor(rest) }}>{rest}</Box>
+                    </Typography>
+                  );
+                })
+              )}
+              <div ref={logsEndRef} />
+            </Box>
+          </Collapse>
+        </Stack>
+
+        <Divider />
 
         <Button
           variant="contained"
           onClick={runGeneration}
           disabled={generating}
           startIcon={generating || generated ? <RefreshRounded /> : <BoltRounded />}
-          sx={{ fontWeight: 600 }}
+          sx={{
+            fontWeight: 600,
+            transition: 'transform .2s ease, box-shadow .2s ease',
+            '&:hover': { transform: 'translateY(-1px)', boxShadow: '0 8px 20px rgba(99,102,241,.35)' },
+          }}
         >
           {generating ? 'Generating…' : generated ? 'Regenerate' : 'Generate Server'}
         </Button>
 
         {(generating || generated) && genProgress.length > 0 && (
-          <Paper variant="outlined" sx={{ p: 1.75 }}>
-            <Stack spacing={0.75}>
-              {genProgress.map((step, i) => (
-                <Stack key={i} direction="row" alignItems="center" spacing={0.875}>
-                  <Box
-                    sx={{
-                      width: 5, height: 5, borderRadius: '50%', flexShrink: 0,
-                      bgcolor: i === genProgress.length - 1 && generated ? 'success.main' : 'text.disabled',
-                    }}
-                  />
-                  <Typography
-                    variant="caption"
-                    fontFamily="monospace"
-                    color={i === genProgress.length - 1 && generated ? 'success.main' : 'text.secondary'}
-                  >
-                    {step}
-                  </Typography>
-                </Stack>
-              ))}
+          <Paper variant="outlined" sx={{ p: 1.75, borderRadius: 2 }}>
+            <Stack spacing={0.9}>
+              {genProgress.map((step, i) => {
+                const isCurrent = i === genProgress.length - 1 && !generated;
+                return (
+                  <Fade in key={i} timeout={300}>
+                    <Stack direction="row" alignItems="center" spacing={1}>
+                      {isCurrent ? (
+                        <CircularProgress size={13} thickness={5} sx={{ flexShrink: 0 }} />
+                      ) : (
+                        <CheckCircleRounded sx={{ fontSize: 14, color: 'success.main', flexShrink: 0 }} />
+                      )}
+                      <Typography
+                        variant="caption"
+                        fontFamily="monospace"
+                        color={isCurrent ? 'text.primary' : i === genProgress.length - 1 ? 'success.main' : 'text.secondary'}
+                      >
+                        {step}
+                      </Typography>
+                    </Stack>
+                  </Fade>
+                );
+              })}
             </Stack>
           </Paper>
         )}
 
         {generated && (
-          <Paper variant="outlined" sx={{ p: 1.75, borderColor: 'success.main', bgcolor: 'rgba(16,185,129,.05)' }}>
+          <Paper variant="outlined" sx={{ p: 1.75, borderRadius: 2, borderColor: 'success.main', bgcolor: 'rgba(16,185,129,.05)' }}>
             <Typography variant="caption" fontWeight={600} color="success.main" display="block" mb={0.75}>
               Server config
             </Typography>
@@ -846,37 +1188,52 @@ export default function AASServer() {
         )}
       </Box>
 
-      {/* ── Right: Code Panel ── */}
-      <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+      {/* ── Right: Code Panel (theme-aware editor) ── */}
+      <Box sx={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', bgcolor: ct.bg, transition: 'background-color .25s ease' }}>
         <Stack
           direction="row"
           alignItems="center"
-          sx={{ px: 2, borderBottom: 1, borderColor: 'divider', bgcolor: 'background.paper', flexShrink: 0 }}
+          sx={{ px: 2, borderBottom: `1px solid ${ct.border}`, flexShrink: 0 }}
         >
           <Tabs
             value={activeTab}
             onChange={(_, v) => setActiveTab(v as CodeTab)}
             textColor="inherit"
+            variant="scrollable"
+            scrollButtons={false}
             slotProps={{ indicator: { style: { height: 2 } } }}
+            sx={{
+              minHeight: 44,
+              '& .MuiTab-root': { color: ct.tab },
+              '& .MuiTab-root.Mui-selected': { color: ct.tabActive },
+            }}
           >
             {tabs.map(tab => (
               <Tab
                 key={tab.key}
                 value={tab.key}
-                label={tab.label}
+                label={
+                  <Stack direction="row" spacing={0.75} alignItems="center">
+                    <Box sx={{ width: 7, height: 7, borderRadius: '50%', bgcolor: FILE_DOT[tab.key], flexShrink: 0 }} />
+                    <span>{tab.label}</span>
+                  </Stack>
+                }
                 sx={{ fontFamily: 'monospace', fontSize: 11, minHeight: 44, textTransform: 'none' }}
               />
             ))}
           </Tabs>
           <Box flexGrow={1} />
           {generated && (
-            <Stack direction="row" spacing={0.75}>
+            <Stack direction="row" spacing={0.75} alignItems="center">
+              <Typography variant="caption" fontFamily="monospace" sx={{ color: ct.gutter, mr: 0.5 }}>
+                {getCode().split('\n').length} LOC
+              </Typography>
               <Button
                 size="small"
                 variant="text"
                 startIcon={<ContentCopyRounded sx={{ fontSize: 13 }} />}
                 onClick={handleCopy}
-                color={copied ? 'success' : 'inherit'}
+                sx={{ color: copied ? 'success.main' : ct.tab, '&:hover': { color: ct.tabActive } }}
               >
                 {copied ? 'Copied!' : 'Copy'}
               </Button>
@@ -885,6 +1242,10 @@ export default function AASServer() {
                 variant="outlined"
                 startIcon={<FileDownloadRounded sx={{ fontSize: 13 }} />}
                 onClick={handleDownload}
+                sx={{
+                  color: ct.text, borderColor: ct.buttonBorder,
+                  '&:hover': { borderColor: ct.tab, bgcolor: ct.buttonHoverBg },
+                }}
               >
                 Download
               </Button>
@@ -892,21 +1253,48 @@ export default function AASServer() {
           )}
         </Stack>
 
+        {generating && (
+          <LinearProgress
+            sx={{
+              flexShrink: 0, height: 2, bgcolor: 'transparent',
+              '& .MuiLinearProgress-bar': { background: 'linear-gradient(90deg, #3b82f6, #8b5cf6)' },
+            }}
+          />
+        )}
+
         <Box sx={{ flex: 1, overflow: 'auto', p: 2.5 }}>
           {!generated ? (
-            <Stack alignItems="center" justifyContent="center" height="100%" spacing={1}>
-              <Typography fontSize={30}>⚡</Typography>
-              <Typography variant="body2" color="text.secondary" fontWeight={500}>
-                Clicca "Generate Server" per iniziare
+            <Stack alignItems="center" justifyContent="center" height="100%" spacing={1.5}>
+              <Box
+                sx={{
+                  width: 88, height: 88, borderRadius: '50%', display: 'grid', placeItems: 'center',
+                  border: `1px solid ${ct.border}`,
+                  background: `radial-gradient(circle at 50% 35%, ${isDarkMode ? 'rgba(99,102,241,.28)' : 'rgba(99,102,241,.14)'}, transparent 72%)`,
+                  boxShadow: `0 0 44px ${isDarkMode ? 'rgba(99,102,241,.22)' : 'rgba(99,102,241,.15)'}`,
+                  ...(generating && {
+                    animation: 'aasGlow 1.4s ease-in-out infinite',
+                    '@keyframes aasGlow': {
+                      '0%, 100%': { boxShadow: '0 0 30px rgba(99,102,241,.15)' },
+                      '50%': { boxShadow: '0 0 60px rgba(99,102,241,.4)' },
+                    },
+                  }),
+                }}
+              >
+                <BoltRounded sx={{ fontSize: 38, color: isDarkMode ? '#8b95f6' : '#6366f1' }} />
+              </Box>
+              <Typography variant="body2" fontWeight={600} sx={{ color: ct.emptyTitle }}>
+                {generating ? 'Generazione in corso…' : 'Clicca "Generate Server" per iniziare'}
               </Typography>
-              <Typography variant="caption" fontFamily="monospace" color="text.disabled">
+              <Typography variant="caption" fontFamily="monospace" sx={{ color: ct.emptyCaption }}>
                 {submodels.length} submodel{submodels.length !== 1 ? 's' : ''} · FastAPI · IDTA compliant
               </Typography>
             </Stack>
           ) : (
-            <pre style={{ fontSize: 11, fontFamily: "'JetBrains Mono', 'Fira Code', monospace", lineHeight: 1.7, whiteSpace: 'pre-wrap', margin: 0 }}>
-              {getCode()}
-            </pre>
+            <Fade in key={activeTab} timeout={350}>
+              <Box>
+                <CodeView code={getCode()} ct={ct} />
+              </Box>
+            </Fade>
           )}
         </Box>
       </Box>

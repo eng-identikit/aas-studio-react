@@ -15,6 +15,14 @@ export interface RemoteShellSummary {
   submodels?: unknown[];
 }
 
+export interface RemoteSubmodel {
+  id: string;
+  idShort?: string;
+  description?: { language: string; text: string }[];
+  semanticId?: { keys?: { type: string; value: string }[] };
+  submodelElements?: { idShort?: string; modelType?: string }[];
+}
+
 export interface PingResult {
   reachable: boolean;
   baseUrl: string;
@@ -45,9 +53,16 @@ export const useAASRemote = () => {
       { baseUrl, auth, cursor, limit },
     );
 
+  /** List all submodels of the remote repository (one page, full JSON). */
+  const listSubmodels = (baseUrl: string, auth?: RemoteAuth, cursor?: string, limit = 100) =>
+    api.post<{ submodels: RemoteSubmodel[]; paging: { cursor?: string } | null }>(
+      `${BASE}/submodels`,
+      { baseUrl, auth, cursor, limit },
+    );
+
   /** Fetch a shell and its submodels (raw standard AAS JSON). */
   const pull = (baseUrl: string, auth?: RemoteAuth, shellId?: string) =>
     api.post<PullResult>(`${BASE}/pull`, { baseUrl, auth, shellId });
 
-  return { ping, listShells, pull };
+  return { ping, listShells, listSubmodels, pull };
 };

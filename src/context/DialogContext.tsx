@@ -14,6 +14,7 @@ interface DialogHandlers {
   onExportChangelog?: () => void;
   // AAS Server
   onGenerateServer?: () => void;
+  onRunServer?: () => void;
   onDownloadServer?: () => void;
   // Profile / settings
   onShowCreateOperator?: () => void;

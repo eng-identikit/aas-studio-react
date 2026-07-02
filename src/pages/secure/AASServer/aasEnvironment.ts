@@ -1,0 +1,117 @@
+import type {
+  SubmodelTemplate,
+  SubmodelElement,
+  SubmodelElementChild,
+} from '@/context/AASContext';
+
+// Single source of truth for the AAS environment served by a generated or
+// debug server. "Generate Server" prints it as Python literals inside main.py;
+// "Run Server" POSTs it as JSON to the aas-server-runner control API. Both
+// paths therefore expose exactly the same content.
+
+export interface AasEnvironment {
+  info: { idShort: string; version: string };
+  shells: Record<string, unknown>;
+  submodels: Record<string, unknown>;
+  conceptDescriptions: Record<string, unknown>;
+}
+
+function elementToJson(el: SubmodelElement | SubmodelElementChild): Record<string, unknown> {
+  const out: Record<string, unknown> = {
+    modelType: el.type,
+    idShort: el.idShort,
+  };
+  if (el.semanticId) {
+    out.semanticId = {
+      type: 'ExternalReference',
+      keys: [{ type: 'GlobalReference', value: el.semanticId }],
+    };
+  }
+  if (el.type === 'Property') {
+    if (el.valueType) out.valueType = el.valueType;
+    out.value = '';
+  } else if (el.type === 'MultiLanguageProperty') {
+    out.value = [{ language: 'en', text: '' }];
+  } else if (el.type === 'SubmodelElementCollection') {
+    const smEl = el as SubmodelElement;
+    out.value = (smEl.children ?? []).map(c => elementToJson(c));
+  } else if (el.type === 'Operation') {
+    out.inputVariables = [];
+    out.outputVariables = [];
+    out.inoutputVariables = [];
+  } else if (el.type === 'File' || el.type === 'Blob') {
+    out.contentType = ('contentType' in el && el.contentType) ? el.contentType : 'application/octet-stream';
+    out.value = '';
+  } else if (el.type === 'ReferenceElement') {
+    out.value = null;
+  }
+  return out;
+}
+
+export function buildAasEnvironment(
+  aasIdShort: string,
+  assetId: string,
+  version: string,
+  assetKind: string,
+  submodels: SubmodelTemplate[],
+): AasEnvironment {
+  const aasUrn = 'urn:generated:' + aasIdShort;
+  const smUrn = (sm: SubmodelTemplate) => 'urn:generated:' + aasIdShort + ':' + sm.idShort;
+
+  const shells: Record<string, unknown> = {
+    [aasIdShort]: {
+      id: aasUrn,
+      idShort: aasIdShort,
+      assetInformation: {
+        assetKind,
+        globalAssetId: assetId,
+      },
+      submodels: submodels.map(sm => ({
+        type: 'ExternalReference',
+        keys: [{ type: 'Submodel', value: smUrn(sm) }],
+      })),
+    },
+  };
+
+  const submodelMap: Record<string, unknown> = {};
+  for (const sm of submodels) {
+    submodelMap[smUrn(sm)] = {
+      id: smUrn(sm),
+      idShort: sm.idShort,
+      description: [{ language: 'en', text: sm.description || sm.idShort }],
+      semanticId: {
+        type: 'ExternalReference',
+        keys: [{ type: 'GlobalReference', value: sm.semanticId }],
+      },
+      submodelElements: sm.elements.map(e => elementToJson(e)),
+    };
+  }
+
+  return {
+    info: { idShort: aasIdShort, version },
+    shells,
+    submodels: submodelMap,
+    conceptDescriptions: {},
+  };
+}
+
+// Prints a JSON-safe value as a Python literal (None/True/False instead of
+// null/true/false); JSON string escapes are valid in Python string literals.
+export function pyLiteral(value: unknown, depth = 0): string {
+  const pad = '    '.repeat(depth);
+  const inner = '    '.repeat(depth + 1);
+  if (value === null || value === undefined) return 'None';
+  if (value === true) return 'True';
+  if (value === false) return 'False';
+  if (typeof value === 'number') return String(value);
+  if (typeof value === 'string') return JSON.stringify(value);
+  if (Array.isArray(value)) {
+    if (value.length === 0) return '[]';
+    const items = value.map(v => inner + pyLiteral(v, depth + 1));
+    return '[\n' + items.join(',\n') + ',\n' + pad + ']';
+  }
+  const entries = Object.entries(value as Record<string, unknown>);
+  if (entries.length === 0) return '{}';
+  const items = entries.map(([k, v]) => inner + JSON.stringify(k) + ': ' + pyLiteral(v, depth + 1));
+  return '{\n' + items.join(',\n') + ',\n' + pad + '}';
+}

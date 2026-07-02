@@ -3,6 +3,7 @@ import SignIn from '@/pages/public/SignIn/SignIn';
 import ProtectedRoute from '@/routes/ProtectedRoutes';
 import Dashboard from '@/pages/secure/Dashboard/Dashboard';
 import AASEditor from '@/pages/secure/AASEditor/AASEditor';
+import AASGateway from '@/pages/secure/AASGateway/AASGateway';
 import AASLifecycle from '@/pages/secure/AASLifecycle/AASLifecycle';
 import AASServer from '@/pages/secure/AASServer/AASServer';
 
@@ -22,6 +23,14 @@ const Router = () => (
       element={
         <ProtectedRoute>
           <AASEditor />
+        </ProtectedRoute>
+      }
+    />
+    <Route
+      path="gateway"
+      element={
+        <ProtectedRoute>
+          <AASGateway />
         </ProtectedRoute>
       }
     />

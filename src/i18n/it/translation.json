@@ -50,6 +50,8 @@
       "profile": "Profilo",
       "calendar": "Calendario",
       "aasEditor": "Editor AAS",
+      "aasGateway": "AAS Gateway",
+      "gateway": "AAS Gateway",
       "aasLifecycle": "Ciclo di vita",
       "aasServer": "Server",
       "about": "Informazioni",
@@ -60,11 +62,13 @@
       "addEntity": "Nuovo modello",
       "exportChangelog": "Esporta changelog",
       "generateServer": "Genera server",
+      "runServer": "Run server",
       "downloadCode": "Scarica codice",
       "settings": "Impostazioni",
       "toolTips": {
         "dashboard": "Dashboard",
         "aasEditor": "Editor AAS",
+        "aasGateway": "AAS Gateway",
         "aasLifecycle": "Ciclo di vita AAS",
         "aasServer": "Generatore di server",
         "about": "Informazioni",
@@ -75,6 +79,7 @@
         "addEntity": "Nuovo modello AAS",
         "exportChangelog": "Esporta changelog",
         "generateServer": "Genera server",
+        "runServer": "Avvia server di debug (porta 6789)",
         "downloadCode": "Scarica codice",
         "settings": "Impostazioni"
       }
