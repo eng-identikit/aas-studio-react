@@ -3,6 +3,7 @@ import {
   Box,
   Button,
   Chip,
+  CircularProgress,
   Collapse,
   Dialog,
   DialogActions,
@@ -33,6 +34,7 @@ import {
   CheckCircleRounded,
   CheckRounded,
   CloseRounded,
+  CommitRounded,
   DeleteRounded,
   EditRounded,
   ErrorOutlineRounded,
@@ -339,6 +341,18 @@ export default function AASEditor() {
           v{currentVersion.version}&nbsp;rev.{currentVersion.revision}
         </Typography>
 
+        {currentModel.dirty ? (
+          <Stack direction="row" alignItems="center" spacing={0.5}>
+            <Box sx={{ width: 7, height: 7, borderRadius: '50%', bgcolor: 'warning.main', flexShrink: 0 }} />
+            <Typography variant="caption" color="warning.main" fontWeight={600}>Non salvato</Typography>
+          </Stack>
+        ) : (
+          <Stack direction="row" alignItems="center" spacing={0.5}>
+            <CheckRounded sx={{ fontSize: 14, color: 'success.main' }} />
+            <Typography variant="caption" color="text.disabled">Salvato</Typography>
+          </Stack>
+        )}
+
         <Menu
           anchorEl={statusMenuAnchor}
           open={Boolean(statusMenuAnchor)}
@@ -398,6 +412,16 @@ export default function AASEditor() {
           sx={{ ml: 0.5 }}
         >
           History
+        </Button>
+
+        <Button
+          variant="contained"
+          size="small"
+          startIcon={isSaving ? <CircularProgress size={14} color="inherit" /> : <CommitRounded />}
+          onClick={() => setShowCommitDialog(true)}
+          disabled={isSaving || (!currentModel.dirty && Boolean(currentModel.documentId))}
+        >
+          Commit
         </Button>
 
         <Button
