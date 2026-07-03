@@ -145,8 +145,7 @@ export default function ImageCropDialog({ open, aspectRatio = 4 / 3, onClose, im
             onCropComplete(croppedImage);
         } catch (e) {
             console.error('❌ Errore nel crop dell\'immagine:', e);
-            // You might want to show a user-friendly error message here
-            alert('Errore durante il ritaglio dell\'immagine. Riprova.');
+            alert(t('common.dialogs.cropImage.error'));
         }
     };
 

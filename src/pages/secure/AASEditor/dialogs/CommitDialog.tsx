@@ -1,4 +1,5 @@
 import { useState, useEffect, type ChangeEvent } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   Box,
   Button,
@@ -41,6 +42,7 @@ export default function CommitDialog({
   currentVersion, currentRevision, currentStatus,
   isSaving, onCommit,
 }: CommitDialogProps) {
+  const { t } = useTranslation();
   const suggestedVersion = isFirstSave ? currentVersion : bumpVersion(currentVersion);
 
   const [message, setMessage] = useState('');
@@ -77,10 +79,10 @@ export default function CommitDialog({
         <CloudUploadRounded />
         <Box>
           <Typography variant="subtitle1" fontWeight={700} lineHeight={1.2}>
-            {isFirstSave ? 'Primo salvataggio sul server' : 'Nuovo commit'}
+            {isFirstSave ? t('commitDialog.firstSaveTitle') : t('commitDialog.commitTitle')}
           </Typography>
           <Typography variant="caption" color="text.disabled" fontFamily="monospace">
-            {isFirstSave ? 'Crea il documento nel repository' : `versione corrente: v${currentVersion} rev.${currentRevision}`}
+            {isFirstSave ? t('commitDialog.firstSaveSubtitle') : t('commitDialog.currentVersionSubtitle', { version: currentVersion, revision: currentRevision })}
           </Typography>
         </Box>
         <Box flexGrow={1} />
@@ -93,19 +95,19 @@ export default function CommitDialog({
         <Stack spacing={2} pt={1}>
           {isFirstSave && (
             <Alert severity="info" sx={{ fontSize: 12 }}>
-              L'AAS verrà salvato nel repository con un commit iniziale. Potrai creare versioni successive da History.
+              {t('commitDialog.firstSaveInfo')}
             </Alert>
           )}
 
           <Box>
-            <FormLabel sx={{ fontSize: 11, mb: 0.5, display: 'block' }}>Messaggio commit *</FormLabel>
+            <FormLabel sx={{ fontSize: 11, mb: 0.5, display: 'block' }}>{t('commitDialog.messageLabel')}</FormLabel>
             <TextField
               size="small"
               fullWidth
               multiline
               rows={2}
               value={message}
-              placeholder={isFirstSave ? 'Initial commit' : 'Descrivi le modifiche apportate…'}
+              placeholder={isFirstSave ? t('commitDialog.messagePlaceholderFirst') : t('commitDialog.messagePlaceholder')}
               onChange={(e: ChangeEvent<HTMLInputElement>) => setMessage(e.target.value)}
               slotProps={{ input: { style: { fontFamily: 'monospace', fontSize: 12 } } }}
             />
@@ -113,7 +115,7 @@ export default function CommitDialog({
 
           <Stack direction="row" spacing={1.5}>
             <Box flex={1}>
-              <FormLabel sx={{ fontSize: 11, mb: 0.5, display: 'block' }}>Versione *</FormLabel>
+              <FormLabel sx={{ fontSize: 11, mb: 0.5, display: 'block' }}>{t('commitDialog.versionLabel')}</FormLabel>
               <TextField
                 size="small"
                 fullWidth
@@ -124,7 +126,7 @@ export default function CommitDialog({
               />
             </Box>
             <Box width={100}>
-              <FormLabel sx={{ fontSize: 11, mb: 0.5, display: 'block' }}>Revisione *</FormLabel>
+              <FormLabel sx={{ fontSize: 11, mb: 0.5, display: 'block' }}>{t('commitDialog.revisionLabel')}</FormLabel>
               <TextField
                 size="small"
                 fullWidth
@@ -137,7 +139,7 @@ export default function CommitDialog({
           </Stack>
 
           <Box>
-            <FormLabel sx={{ fontSize: 11, mb: 0.5, display: 'block' }}>Stato</FormLabel>
+            <FormLabel sx={{ fontSize: 11, mb: 0.5, display: 'block' }}>{t('commitDialog.statusLabel')}</FormLabel>
             <Select
               size="small"
               fullWidth
@@ -145,23 +147,23 @@ export default function CommitDialog({
               onChange={(e) => setStatus(e.target.value as CommitStatus)}
               sx={{ fontFamily: 'monospace', fontSize: 12 }}
             >
-              <MenuItem value="Draft">Draft — in lavorazione</MenuItem>
-              <MenuItem value="Active">Active — approvato e in uso</MenuItem>
-              <MenuItem value="Deprecated">Deprecated — superato</MenuItem>
+              <MenuItem value="Draft">{t('commitDialog.statusDraft')}</MenuItem>
+              <MenuItem value="Active">{t('commitDialog.statusActive')}</MenuItem>
+              <MenuItem value="Deprecated">{t('commitDialog.statusDeprecated')}</MenuItem>
             </Select>
           </Box>
         </Stack>
       </DialogContent>
 
       <Stack direction="row" justifyContent="flex-end" spacing={1} p={1.5} sx={{ borderTop: 1, borderColor: 'divider' }}>
-        <Button onClick={onClose} disabled={isSaving}>Annulla</Button>
+        <Button onClick={onClose} disabled={isSaving}>{t('common.buttons.cancel')}</Button>
         <Button
           variant="contained"
           disabled={!canCommit || isSaving}
           startIcon={<CloudUploadRounded />}
           onClick={handleConfirm}
         >
-          {isSaving ? 'Salvataggio…' : isFirstSave ? 'Salva sul server' : 'Commit'}
+          {isSaving ? t('commitDialog.saving') : isFirstSave ? t('commitDialog.saveToServer') : t('commitDialog.commit')}
         </Button>
       </Stack>
     </Dialog>

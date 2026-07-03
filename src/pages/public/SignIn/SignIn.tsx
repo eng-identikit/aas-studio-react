@@ -1,5 +1,6 @@
 import { useState, useEffect, FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 
 import { Box, Button, Checkbox, CssBaseline, FormControlLabel, FormLabel, FormControl, Link, TextField, Typography, Stack, Card as MuiCard, InputAdornment, IconButton } from '@mui/material';
 import { VisibilityRounded, VisibilityOffRounded } from '@mui/icons-material';
@@ -64,6 +65,7 @@ const SignInContainer = styled(Stack)(({ theme }: { theme: any }) => ({
 }));
 
 export default function SignIn(props: { disableCustomTheme?: boolean }) {
+  const { t } = useTranslation();
   const { colorScheme } = useColorScheme();
   const logoSrc = colorScheme === 'dark' ? '/logo_white.png' : '/logo_dark.png';
   const [emailError, setEmailError] = useState(false);
@@ -122,11 +124,11 @@ export default function SignIn(props: { disableCustomTheme?: boolean }) {
           auth_token: d.auth_token,
         });
       } else {
-        showSnackbar(response.message || 'Credenziali errate', 'error');
+        showSnackbar(response.message || t('signIn.loginFailed'), 'error');
       }
     } catch (error: any) {
-      console.error(error.response?.data?.message || 'An error occurred');
-      showSnackbar(error.response?.data?.message || 'An error occurred', 'error');
+      console.error(error.response?.data?.message || t('common.texts.error'));
+      showSnackbar(error.response?.data?.message || t('common.texts.error'), 'error');
     }
   };
 
@@ -138,7 +140,7 @@ export default function SignIn(props: { disableCustomTheme?: boolean }) {
 
     if (!email.value || !/\S+@\S+\.\S+/.test(email.value)) {
       setEmailError(true);
-      setEmailErrorMessage('Please enter a valid email address.');
+      setEmailErrorMessage(t('signIn.emailInvalid'));
       isValid = false;
     } else {
       setEmailError(false);
@@ -147,7 +149,7 @@ export default function SignIn(props: { disableCustomTheme?: boolean }) {
 
     if (!password.value || password.value.length < 6) {
       setPasswordError(true);
-      setPasswordErrorMessage('Password must be at least 6 characters long.');
+      setPasswordErrorMessage(t('signIn.passwordTooShort'));
       isValid = false;
     } else {
       setPasswordError(false);
@@ -161,12 +163,12 @@ export default function SignIn(props: { disableCustomTheme?: boolean }) {
     try {
       const response = await post('/v1/recover', data);
       if (response.statusCode == 200) {
-        showSnackbar('Password reset successfully', 'success');
+        showSnackbar(t('signIn.resetSuccess'), 'success');
       } else {
-        showSnackbar(response.data.message || 'Failed to reset password', 'error');
+        showSnackbar(response.data.message || t('signIn.resetFailed'), 'error');
       }
     } catch (error: any) {
-      showSnackbar(error.response?.data?.message || 'An error occurred', 'error');
+      showSnackbar(error.response?.data?.message || t('common.texts.error'), 'error');
     } finally {
       setOpen(false);
     }
@@ -192,7 +194,7 @@ export default function SignIn(props: { disableCustomTheme?: boolean }) {
             variant="h4"
             sx={{ width: '100%', fontSize: 'clamp(2rem, 10vw, 2.15rem)' }}
           >
-            Sign in
+            {t('signIn.title')}
           </Typography>
           <Box
             component="form"
@@ -206,7 +208,7 @@ export default function SignIn(props: { disableCustomTheme?: boolean }) {
             }}
           >
             <FormControl>
-              <FormLabel htmlFor="email">Email</FormLabel>
+              <FormLabel htmlFor="email">{t('signIn.emailLabel')}</FormLabel>
               <TextField
                 error={emailError}
                 helperText={emailErrorMessage}
@@ -222,7 +224,7 @@ export default function SignIn(props: { disableCustomTheme?: boolean }) {
                 color={emailError ? 'error' : 'primary'}
               />
               <FormControl>
-                <FormLabel htmlFor="password">Password</FormLabel>
+                <FormLabel htmlFor="password">{t('signIn.passwordLabel')}</FormLabel>
                 <TextField
                   error={passwordError}
                   helperText={passwordErrorMessage}
@@ -258,7 +260,7 @@ export default function SignIn(props: { disableCustomTheme?: boolean }) {
             </FormControl>
             <FormControlLabel
               control={<Checkbox value="remember" color="primary" />}
-              label="Remember me"
+              label={t('signIn.rememberMe')}
             />
             <ForgotPassword
               open={open}
@@ -271,7 +273,7 @@ export default function SignIn(props: { disableCustomTheme?: boolean }) {
               variant="contained"
               onClick={validateInputs}
             >
-              Sign in
+              {t('signIn.submit')}
             </Button>
             <Link
               component="button"
@@ -280,7 +282,7 @@ export default function SignIn(props: { disableCustomTheme?: boolean }) {
               variant="body2"
               sx={{ alignSelf: 'center' }}
             >
-              Forgot your password?
+              {t('signIn.forgotPassword')}
             </Link>
           </Box>
         </Card>

@@ -1,5 +1,7 @@
 import { useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
+import type { TFunction } from 'i18next';
 import {
   Box, Card, CardContent, CardActionArea, Chip, Stack, Typography, Divider,
   Paper, Avatar, Tooltip, LinearProgress,
@@ -17,25 +19,29 @@ import { brand, violet, green, orange, red } from '@/theme/themePrimitives';
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
-function greeting() {
+function greetingKey() {
   const h = new Date().getHours();
-  if (h < 12) return 'Buongiorno';
-  if (h < 18) return 'Buon pomeriggio';
-  return 'Buona sera';
+  if (h < 12) return 'dashboard.greetingMorning';
+  if (h < 18) return 'dashboard.greetingAfternoon';
+  return 'dashboard.greetingEvening';
 }
 
-function relativeDate(iso: string) {
+function localeOf(lang: string) {
+  return lang === 'it' ? 'it-IT' : 'en-US';
+}
+
+function relativeDate(iso: string, t: TFunction, locale: string) {
   const diff = Date.now() - new Date(iso).getTime();
   const d = Math.floor(diff / 86400000);
-  if (d === 0) return 'Oggi';
-  if (d === 1) return 'Ieri';
-  if (d < 7) return `${d}g fa`;
-  if (d < 30) return `${Math.floor(d / 7)}w fa`;
-  return new Date(iso).toLocaleDateString('it-IT', { day: '2-digit', month: 'short', year: '2-digit' });
+  if (d === 0) return t('dashboard.today');
+  if (d === 1) return t('dashboard.yesterday');
+  if (d < 7) return t('dashboard.daysShort', { count: d });
+  if (d < 30) return t('dashboard.weeksShort', { count: Math.floor(d / 7) });
+  return new Date(iso).toLocaleDateString(locale, { day: '2-digit', month: 'short', year: '2-digit' });
 }
 
-function fmtDate(iso: string) {
-  return new Date(iso).toLocaleDateString('it-IT', { day: '2-digit', month: 'short', year: 'numeric' });
+function fmtDate(iso: string, locale: string) {
+  return new Date(iso).toLocaleDateString(locale, { day: '2-digit', month: 'short', year: 'numeric' });
 }
 
 const STATUS_COLOR = {
@@ -44,16 +50,10 @@ const STATUS_COLOR = {
   Deprecated: 'default',
 } as const;
 
-const STATUS_LABEL: Record<string, string> = {
-  Active: 'Versione approvata e in uso operativo',
-  Draft: 'In lavorazione — non ancora rilasciata',
-  Deprecated: 'Sorpassata da una versione più recente',
-};
-
-const CHANGE_META: Record<ChangeType, { icon: typeof AddCircleOutlineRounded; color: string; label: string }> = {
-  added:    { icon: AddCircleOutlineRounded,    color: green[400],  label: 'Aggiunto' },
-  modified: { icon: SyncAltRounded,             color: orange[400], label: 'Modificato' },
-  removed:  { icon: RemoveCircleOutlineRounded, color: red[400],    label: 'Rimosso' },
+const CHANGE_META: Record<ChangeType, { icon: typeof AddCircleOutlineRounded; color: string }> = {
+  added:    { icon: AddCircleOutlineRounded,    color: green[400] },
+  modified: { icon: SyncAltRounded,             color: orange[400] },
+  removed:  { icon: RemoveCircleOutlineRounded, color: red[400] },
 };
 
 // ─── KPI Card ───────────────────────────────────────────────────────────────
@@ -123,6 +123,8 @@ interface AasCardProps {
 }
 
 function AasCard({ model, onClick }: AasCardProps) {
+  const { t, i18n } = useTranslation();
+  const locale = localeOf(i18n.language);
   const latestVersion = model.versions[0];
   const status = latestVersion?.status ?? 'Draft';
   const isType = model.assetKind === 'Type';
@@ -147,7 +149,7 @@ function AasCard({ model, onClick }: AasCardProps) {
             >
               {isType ? <MemoryRounded sx={{ fontSize: 18 }} /> : <HubRounded sx={{ fontSize: 18 }} />}
             </Box>
-            <Tooltip title={STATUS_LABEL[status] ?? ''} arrow placement="top">
+            <Tooltip title={t(`dashboard.statusDesc.${status}`)} arrow placement="top">
               <Chip
                 size="small"
                 label={status}
@@ -172,7 +174,7 @@ function AasCard({ model, onClick }: AasCardProps) {
 
           {/* Stats */}
           <Stack direction="row" spacing={1.5} mt="auto">
-            <Tooltip title="Submodels">
+            <Tooltip title={t('dashboard.submodelsTooltip')}>
               <Stack direction="row" alignItems="center" spacing={0.4}>
                 <LayersRounded sx={{ fontSize: 12, color: 'text.disabled' }} />
                 <Typography variant="caption" color="text.secondary" fontFamily="monospace">
@@ -180,7 +182,7 @@ function AasCard({ model, onClick }: AasCardProps) {
                 </Typography>
               </Stack>
             </Tooltip>
-            <Tooltip title="Ultima versione">
+            <Tooltip title={t('dashboard.lastVersionTooltip')}>
               <Stack direction="row" alignItems="center" spacing={0.4}>
                 <AccountTreeRounded sx={{ fontSize: 12, color: 'text.disabled' }} />
                 <Typography variant="caption" color="text.secondary" fontFamily="monospace">
@@ -192,7 +194,7 @@ function AasCard({ model, onClick }: AasCardProps) {
 
           <Stack direction="row" alignItems="center" justifyContent="space-between" mt={0.5}>
             <Typography variant="caption" color="text.disabled" fontFamily="monospace">
-              {latestVersion ? relativeDate(latestVersion.date) : '—'}
+              {latestVersion ? relativeDate(latestVersion.date, t, locale) : '—'}
             </Typography>
             <ArrowForwardIosRounded sx={{ fontSize: 11, color: 'text.disabled' }} />
           </Stack>
@@ -214,13 +216,13 @@ interface ActivityItem {
   change: ChangeDetail;
 }
 
-function groupByDay(items: ActivityItem[]) {
+function groupByDay(items: ActivityItem[], t: TFunction, locale: string) {
   const groups: { label: string; items: ActivityItem[] }[] = [];
   const seen = new Map<string, number>();
 
   items.forEach(item => {
     const d = Math.floor((Date.now() - new Date(item.date).getTime()) / 86400000);
-    const label = d === 0 ? 'Oggi' : d === 1 ? 'Ieri' : d < 7 ? `${d} giorni fa` : relativeDate(item.date);
+    const label = d === 0 ? t('dashboard.today') : d === 1 ? t('dashboard.yesterday') : d < 7 ? t('dashboard.daysAgo', { count: d }) : relativeDate(item.date, t, locale);
     const dayKey = new Date(item.date).toDateString();
 
     if (!seen.has(dayKey)) {
@@ -237,6 +239,8 @@ function groupByDay(items: ActivityItem[]) {
 // ─── Dashboard ───────────────────────────────────────────────────────────────
 
 export default function Dashboard() {
+  const { t, i18n } = useTranslation();
+  const locale = localeOf(i18n.language);
   const { availableModels, setSelectedModelId } = useAASContext();
   const { operator } = useSessionContext();
   const navigate = useNavigate();
@@ -276,7 +280,7 @@ export default function Dashboard() {
     navigate('/editor');
   };
 
-  const todayStr = new Date().toLocaleDateString('it-IT', {
+  const todayStr = new Date().toLocaleDateString(locale, {
     weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
   });
 
@@ -291,7 +295,7 @@ export default function Dashboard() {
         }}
       >
         <Typography variant="h5" fontWeight={800} color="text.primary">
-          {greeting()}{operator.name ? `, ${operator.name}` : ''} 👋
+          {t(greetingKey())}{operator.name ? `, ${operator.name}` : ''} 👋
         </Typography>
         <Typography variant="body2" color="text.secondary" mt={0.25} sx={{ textTransform: 'capitalize' }}>
           {todayStr}
@@ -301,34 +305,37 @@ export default function Dashboard() {
       {/* ── KPI row ──────────────────────────────────────────────── */}
       <Stack direction="row" spacing={2} mb={3} flexWrap="wrap" useFlexGap>
         <KpiCard
-          label="Asset Administration Shells"
+          label={t('dashboard.kpiShells')}
           value={totalAAS}
           icon={<AccountTreeRounded sx={{ fontSize: 20 }} />}
           accentColor={brand[400]}
-          sub={`${availableModels.filter(m => m.assetKind === 'Instance').length} Instance · ${availableModels.filter(m => m.assetKind === 'Type').length} Type`}
+          sub={t('dashboard.kpiInstanceType', {
+            instances: availableModels.filter(m => m.assetKind === 'Instance').length,
+            types: availableModels.filter(m => m.assetKind === 'Type').length,
+          })}
         />
         <KpiCard
-          label="Versioni attive"
+          label={t('dashboard.kpiActive')}
           value={activeCount}
           total={totalAAS}
           icon={<CheckCircleOutlineRounded sx={{ fontSize: 20 }} />}
           accentColor={green[400]}
-          sub={`${Math.round((activeCount / (totalAAS || 1)) * 100)}% del totale`}
+          sub={t('dashboard.kpiOfTotal', { pct: Math.round((activeCount / (totalAAS || 1)) * 100) })}
         />
         <KpiCard
-          label="Submodels totali"
+          label={t('dashboard.kpiSubmodels')}
           value={totalSubmodels}
           icon={<LayersRounded sx={{ fontSize: 20 }} />}
           accentColor={violet[400]}
-          sub={`${totalAAS ? (totalSubmodels / totalAAS).toFixed(1) : 0} media per AAS`}
+          sub={t('dashboard.kpiAvg', { avg: totalAAS ? (totalSubmodels / totalAAS).toFixed(1) : 0 })}
         />
         <KpiCard
-          label="Bozze in corso"
+          label={t('dashboard.kpiDrafts')}
           value={draftCount}
           total={totalAAS}
           icon={<EditNoteRounded sx={{ fontSize: 20 }} />}
           accentColor={orange[400]}
-          sub={draftCount > 0 ? 'Da revisionare' : 'Tutto in ordine'}
+          sub={draftCount > 0 ? t('dashboard.kpiToReview') : t('dashboard.kpiAllGood')}
         />
       </Stack>
 
@@ -339,11 +346,11 @@ export default function Dashboard() {
         <Box sx={{ flex: '1 1 0', minWidth: 0 }}>
           <Stack direction="row" alignItems="center" spacing={1} mb={1.5}>
             <Typography variant="overline" color="text.disabled" letterSpacing={1}>
-              I tuoi AAS — {totalAAS} totali
+              {t('dashboard.yourAas', { count: totalAAS })}
             </Typography>
             <Stack direction="row" spacing={0.75} ml="auto">
               {(['Active', 'Draft', 'Deprecated'] as const).map(s => (
-                <Tooltip key={s} title={STATUS_LABEL[s]} arrow>
+                <Tooltip key={s} title={t(`dashboard.statusDesc.${s}`)} arrow>
                   <Chip
                     size="small" label={s} color={STATUS_COLOR[s]} variant="outlined"
                     sx={{ fontSize: 9, height: 18, fontWeight: 700, cursor: 'help' }}
@@ -368,7 +375,7 @@ export default function Dashboard() {
         {/* Riepilogo AAS (colonna destra) */}
         <Box sx={{ width: { xs: '100%', lg: 340 }, flexShrink: 0 }}>
           <Typography variant="overline" color="text.disabled" display="block" mb={1.5} letterSpacing={1}>
-            Riepilogo AAS
+            {t('dashboard.summary')}
           </Typography>
           <Paper
             variant="outlined"
@@ -380,7 +387,7 @@ export default function Dashboard() {
               return (
                 <Box key={m.id}>
                   {idx > 0 && <Divider />}
-                  <Tooltip title={STATUS_LABEL[status]} arrow placement="left">
+                  <Tooltip title={t(`dashboard.statusDesc.${status}`)} arrow placement="left">
                     <Stack
                       direction="row" alignItems="center" spacing={1.5}
                       sx={{
@@ -405,7 +412,7 @@ export default function Dashboard() {
                           {m.idShort.replace(/^AAS_/, '')}
                         </Typography>
                         <Typography variant="caption" color="text.disabled" fontFamily="monospace" sx={{ fontSize: 9 }}>
-                          v{v?.version} · {m.submodels.length} SM · {v ? fmtDate(v.date) : '—'}
+                          v{v?.version} · {m.submodels.length} SM · {v ? fmtDate(v.date, locale) : '—'}
                         </Typography>
                       </Box>
                       <Chip
@@ -425,16 +432,16 @@ export default function Dashboard() {
       <Box>
         <Stack direction="row" alignItems="center" spacing={2} mb={1.5}>
           <Typography variant="overline" color="text.disabled" letterSpacing={1}>
-            Attività recente
+            {t('dashboard.recentActivity')}
           </Typography>
           {/* contatori per tipo */}
           <Stack direction="row" spacing={0.75}>
-            {(['added', 'modified', 'removed'] as ChangeType[]).map(t => {
-              const n = recentActivity.filter(i => i.change.type === t).length;
+            {(['added', 'modified', 'removed'] as ChangeType[]).map(ct => {
+              const n = recentActivity.filter(i => i.change.type === ct).length;
               if (!n) return null;
-              const meta = CHANGE_META[t];
+              const meta = CHANGE_META[ct];
               return (
-                <Tooltip key={t} title={meta.label} arrow>
+                <Tooltip key={ct} title={t(`dashboard.change.${ct}`)} arrow>
                   <Box
                     sx={{
                       px: 0.75, py: 0.2, borderRadius: 1,
@@ -453,7 +460,7 @@ export default function Dashboard() {
             })}
           </Stack>
           <Typography variant="caption" color="text.disabled" sx={{ ml: 'auto' }}>
-            {recentActivity.length} modifiche totali
+            {t('dashboard.totalChanges', { count: recentActivity.length })}
           </Typography>
         </Stack>
 
@@ -473,7 +480,7 @@ export default function Dashboard() {
             }}
           >
             <Typography variant="caption" fontWeight={700} color="text.primary">
-              Storico modifiche per tutti gli AAS
+              {t('dashboard.historyAll')}
             </Typography>
           </Box>
 
@@ -481,11 +488,11 @@ export default function Dashboard() {
           <Box sx={{ p: 2.5 }}>
             {recentActivity.length === 0 ? (
               <Typography variant="body2" color="text.disabled" textAlign="center" py={4}>
-                Nessuna attività registrata
+                {t('dashboard.noActivity')}
               </Typography>
             ) : (
               (() => {
-                const groups = groupByDay(recentActivity);
+                const groups = groupByDay(recentActivity, t, locale);
                 return groups.map((group, gi) => (
                   <Box key={gi} mb={gi < groups.length - 1 ? 3 : 0}>
                     {/* day separator */}
@@ -498,7 +505,7 @@ export default function Dashboard() {
                       </Typography>
                       <Box sx={{ flex: 1, height: '1px', bgcolor: 'divider' }} />
                       <Typography variant="caption" color="text.disabled" sx={{ fontSize: 9, whiteSpace: 'nowrap' }}>
-                        {group.items.length} {group.items.length === 1 ? 'modifica' : 'modifiche'}
+                        {t('dashboard.changesCount', { count: group.items.length })}
                       </Typography>
                     </Stack>
 

@@ -38,7 +38,7 @@ export default function MenuContent({ collapsed, onItemClick }: { collapsed: boo
     {
       text: 'dashboard',
       icon: (
-        <Tooltip title={t('sideMenu.menuContent.toolTips.dashboard', 'Dashboard')} arrow>
+        <Tooltip title={t('sideMenu.menuContent.toolTips.dashboard')} arrow>
           <SpaceDashboardRounded />
         </Tooltip>
       ),
@@ -47,7 +47,7 @@ export default function MenuContent({ collapsed, onItemClick }: { collapsed: boo
     {
       text: 'aasEditor',
       icon: (
-        <Tooltip title={t('sideMenu.menuContent.toolTips.aasEditor', 'AAS Editor')} arrow>
+        <Tooltip title={t('sideMenu.menuContent.toolTips.aasEditor')} arrow>
           <AccountTreeRounded />
         </Tooltip>
       ),
@@ -56,7 +56,7 @@ export default function MenuContent({ collapsed, onItemClick }: { collapsed: boo
     {
       text: 'aasGateway',
       icon: (
-        <Tooltip title={t('sideMenu.menuContent.toolTips.aasGateway', 'AAS Gateway')} arrow>
+        <Tooltip title={t('sideMenu.menuContent.toolTips.aasGateway')} arrow>
           <LanRounded />
         </Tooltip>
       ),
@@ -65,7 +65,7 @@ export default function MenuContent({ collapsed, onItemClick }: { collapsed: boo
     {
       text: 'aasLifecycle',
       icon: (
-        <Tooltip title={t('sideMenu.menuContent.toolTips.aasLifecycle', 'AAS Lifecycle')} arrow>
+        <Tooltip title={t('sideMenu.menuContent.toolTips.aasLifecycle')} arrow>
           <TimelineRounded />
         </Tooltip>
       ),
@@ -74,7 +74,7 @@ export default function MenuContent({ collapsed, onItemClick }: { collapsed: boo
     {
       text: 'aasServer',
       icon: (
-        <Tooltip title={t('sideMenu.menuContent.toolTips.aasServer', 'Server Generator')} arrow>
+        <Tooltip title={t('sideMenu.menuContent.toolTips.aasServer')} arrow>
           <DnsRounded />
         </Tooltip>
       ),
@@ -90,7 +90,7 @@ export default function MenuContent({ collapsed, onItemClick }: { collapsed: boo
         {
           text: 'about',
           icon: (
-            <Tooltip title={t('sideMenu.menuContent.toolTips.about', 'About')} arrow>
+            <Tooltip title={t('sideMenu.menuContent.toolTips.about')} arrow>
               <InfoRounded />
             </Tooltip>
           ),
@@ -100,7 +100,7 @@ export default function MenuContent({ collapsed, onItemClick }: { collapsed: boo
         {
           text: 'feedback',
           icon: (
-            <Tooltip title={t('sideMenu.menuContent.toolTips.feedback', 'Feedback')} arrow>
+            <Tooltip title={t('sideMenu.menuContent.toolTips.feedback')} arrow>
               <HelpRounded />
             </Tooltip>
           ),
@@ -115,7 +115,7 @@ export default function MenuContent({ collapsed, onItemClick }: { collapsed: boo
         {
           text: 'connectServer',
           icon: (
-            <Tooltip title={t('sideMenu.menuContent.toolTips.connectServer', 'Connetti a un AAS server')} arrow>
+            <Tooltip title={t('sideMenu.menuContent.toolTips.connectServer')} arrow>
               <LanRounded />
             </Tooltip>
           ),
@@ -130,7 +130,7 @@ export default function MenuContent({ collapsed, onItemClick }: { collapsed: boo
         {
           text: 'validateAAS',
           icon: (
-            <Tooltip title={t('sideMenu.menuContent.toolTips.validateAAS', 'Valida AAS')} arrow>
+            <Tooltip title={t('sideMenu.menuContent.toolTips.validateAAS')} arrow>
               <CheckCircleOutlineRounded />
             </Tooltip>
           ),
@@ -140,7 +140,7 @@ export default function MenuContent({ collapsed, onItemClick }: { collapsed: boo
         {
           text: 'exportAASX',
           icon: (
-            <Tooltip title={t('sideMenu.menuContent.toolTips.exportAASX', 'Esporta AASX')} arrow>
+            <Tooltip title={t('sideMenu.menuContent.toolTips.exportAASX')} arrow>
               <FileDownloadRounded />
             </Tooltip>
           ),
@@ -150,7 +150,7 @@ export default function MenuContent({ collapsed, onItemClick }: { collapsed: boo
         {
           text: 'addEntity',
           icon: (
-            <Tooltip title={t('sideMenu.menuContent.toolTips.addEntity', 'Nuovo modello AAS')} arrow>
+            <Tooltip title={t('sideMenu.menuContent.toolTips.addEntity')} arrow>
               <AddBoxRounded />
             </Tooltip>
           ),
@@ -165,7 +165,7 @@ export default function MenuContent({ collapsed, onItemClick }: { collapsed: boo
         {
           text: 'exportChangelog',
           icon: (
-            <Tooltip title={t('sideMenu.menuContent.toolTips.exportChangelog', 'Esporta Changelog')} arrow>
+            <Tooltip title={t('sideMenu.menuContent.toolTips.exportChangelog')} arrow>
               <HistoryRounded />
             </Tooltip>
           ),
@@ -180,7 +180,7 @@ export default function MenuContent({ collapsed, onItemClick }: { collapsed: boo
         {
           text: 'generateServer',
           icon: (
-            <Tooltip title={t('sideMenu.menuContent.toolTips.generateServer', 'Genera Server')} arrow>
+            <Tooltip title={t('sideMenu.menuContent.toolTips.generateServer')} arrow>
               <AutoFixHighRounded />
             </Tooltip>
           ),
@@ -190,7 +190,7 @@ export default function MenuContent({ collapsed, onItemClick }: { collapsed: boo
         {
           text: 'runServer',
           icon: (
-            <Tooltip title={t('sideMenu.menuContent.toolTips.runServer', 'Avvia server di debug (porta 6789)')} arrow>
+            <Tooltip title={t('sideMenu.menuContent.toolTips.runServer')} arrow>
               <PlayCircleRounded />
             </Tooltip>
           ),
@@ -200,7 +200,7 @@ export default function MenuContent({ collapsed, onItemClick }: { collapsed: boo
         {
           text: 'downloadCode',
           icon: (
-            <Tooltip title={t('sideMenu.menuContent.toolTips.downloadCode', 'Scarica Codice')} arrow>
+            <Tooltip title={t('sideMenu.menuContent.toolTips.downloadCode')} arrow>
               <CodeRounded />
             </Tooltip>
           ),
@@ -215,7 +215,7 @@ export default function MenuContent({ collapsed, onItemClick }: { collapsed: boo
         {
           text: 'settings',
           icon: (
-            <Tooltip title={t('sideMenu.menuContent.toolTips.settings', 'Impostazioni')} arrow>
+            <Tooltip title={t('sideMenu.menuContent.toolTips.settings')} arrow>
               <SettingsRounded />
             </Tooltip>
           ),
@@ -287,7 +287,7 @@ export default function MenuContent({ collapsed, onItemClick }: { collapsed: boo
                   {item.icon}
                 </ListItemIcon>
                 <ListItemText
-                  primary={t(`sideMenu.menuContent.${item.text}`, item.text)}
+                  primary={t(`sideMenu.menuContent.${item.text}`)}
                   primaryTypographyProps={{ noWrap: true }}
                   sx={{ pt: '5px' }}
                 />

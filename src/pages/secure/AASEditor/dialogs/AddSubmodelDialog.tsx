@@ -1,4 +1,5 @@
 import { useState, useEffect, type KeyboardEvent, type ChangeEvent } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   Avatar,
   Box,
@@ -189,46 +190,28 @@ async function fetchSubmodelTemplate(entry: CatalogEntry): Promise<SubmodelTempl
 }
 
 // ── Chatbot ──────────────────────────────────────────────────────────────────
+// Responses live in the i18n catalog under addSubmodel.chat.*; this resolves
+// the message to the matching key so the component translates at render time.
 
-const CHATBOT_RESPONSES: Record<string, string> = {
-  default:
-    "Ciao! Sono l'assistente AAS. Posso aiutarti a trovare il submodel giusto.\n\nProva:\n• \"Quale submodel per manutenzione?\"\n• \"Cos'è ECLASS?\"\n• \"Submodel per carbon footprint\"",
-  nameplate:
-    '**Digital Nameplate** (IDTA 02006).\nContiene ManufacturerName, SerialNumber, YearOfConstruction.',
-  maintenance:
-    'Usa **Maintenance** (IDTA 02017):\n• MaintenanceSchedule\n• RemainingUsefulLife',
-  technical:
-    'Usa **TechnicalData** (IDTA 02003):\n• GeneralInformation\n• TechnicalProperties (ECLASS)',
-  documentation:
-    'Usa **HandoverDocumentation** (IDTA 02004) con DocumentId, DocumentTitle e DocumentFile.',
-  carbon:
-    'Usa **CarbonFootprint** (IDTA 02023):\n• CO2EquivalentTotal\n• ReferenceUnit',
-  bom: 'Usa **HierarchyOfAssets** (IDTA 02011) con PartNumber, Quantity e PartReference.',
-  operational:
-    'Usa **TimeSeriesData** (IDTA 02008):\n• RecordCollection\n• Timestamps',
-  eclass:
-    'ECLASS: `0173-1#02-XXXYYY#ZZZ`\nCerca su eclass.eu per i codici esatti.',
-};
-
-function getChatResponse(msg: string): string {
+function getChatResponseKey(msg: string): string {
   const l = msg.toLowerCase();
   if (l.includes('nameplate') || l.includes('identificaz') || l.includes('serial'))
-    return CHATBOT_RESPONSES.nameplate;
+    return 'addSubmodel.chat.nameplate';
   if (l.includes('mainten') || l.includes('manutenzione') || l.includes('predittiv'))
-    return CHATBOT_RESPONSES.maintenance;
+    return 'addSubmodel.chat.maintenance';
   if (l.includes('tecnic') || l.includes('technical') || l.includes('specs'))
-    return CHATBOT_RESPONSES.technical;
+    return 'addSubmodel.chat.technical';
   if (l.includes('document') || l.includes('manuale') || l.includes('handover'))
-    return CHATBOT_RESPONSES.documentation;
+    return 'addSubmodel.chat.documentation';
   if (l.includes('carbon') || l.includes('co2') || l.includes('pcf'))
-    return CHATBOT_RESPONSES.carbon;
+    return 'addSubmodel.chat.carbon';
   if (l.includes('bom') || l.includes('distinta') || l.includes('material'))
-    return CHATBOT_RESPONSES.bom;
+    return 'addSubmodel.chat.bom';
   if (l.includes('operat') || l.includes('runtime') || l.includes('time series'))
-    return CHATBOT_RESPONSES.operational;
+    return 'addSubmodel.chat.operational';
   if (l.includes('eclass') || l.includes('semantic') || l.includes('0173'))
-    return CHATBOT_RESPONSES.eclass;
-  return 'Non ho trovato un match. Prova:\n• "submodel per manutenzione"\n• "come funziona ECLASS"\n• "dati operativi"';
+    return 'addSubmodel.chat.eclass';
+  return 'addSubmodel.chat.noMatch';
 }
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -244,6 +227,7 @@ interface AddSubmodelDialogProps {
 // ── Component ────────────────────────────────────────────────────────────────
 
 export default function AddSubmodelDialog({ open, onClose, onAdd }: AddSubmodelDialogProps) {
+  const { t } = useTranslation();
   const api = useApiManager();
   const [tab, setTab] = useState<'catalog' | 'custom'>('catalog');
   const [search, setSearch] = useState('');
@@ -252,8 +236,8 @@ export default function AddSubmodelDialog({ open, onClose, onAdd }: AddSubmodelD
   const [metamodelFilter, setMetamodelFilter] = useState<string>('All');
   const [selected, setSelected] = useState<string | null>(null);
   const [custom, setCustom] = useState({ idShort: '', semanticId: '', description: '' });
-  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([
-    { role: 'bot', text: CHATBOT_RESPONSES.default },
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>(() => [
+    { role: 'bot', text: t('addSubmodel.chat.default') },
   ]);
   const [chatInput, setChatInput] = useState('');
 
@@ -304,7 +288,7 @@ export default function AddSubmodelDialog({ open, onClose, onAdd }: AddSubmodelD
     setMetamodelFilter('All');
     setSelected(null);
     setCustom({ idShort: '', semanticId: '', description: '' });
-    setChatMessages([{ role: 'bot', text: CHATBOT_RESPONSES.default }]);
+    setChatMessages([{ role: 'bot', text: t('addSubmodel.chat.default') }]);
     setChatInput('');
   };
 
@@ -331,7 +315,7 @@ export default function AddSubmodelDialog({ open, onClose, onAdd }: AddSubmodelD
         });
         handleClose();
       } catch (err: unknown) {
-        setCatalogError(`Impossibile caricare il template: ${err instanceof Error ? err.message : String(err)}`);
+        setCatalogError(t('addSubmodel.templateLoadError', { error: err instanceof Error ? err.message : String(err) }));
       } finally {
         setAdding(false);
       }
@@ -356,7 +340,7 @@ export default function AddSubmodelDialog({ open, onClose, onAdd }: AddSubmodelD
     setChatMessages(prev => [...prev, { role: 'user', text: msg }]);
     setChatInput('');
     setTimeout(
-      () => setChatMessages(prev => [...prev, { role: 'bot', text: getChatResponse(msg) }]),
+      () => setChatMessages(prev => [...prev, { role: 'bot', text: t(getChatResponseKey(msg)) }]),
       500,
     );
   };
@@ -383,10 +367,10 @@ export default function AddSubmodelDialog({ open, onClose, onAdd }: AddSubmodelD
         <AddRounded />
         <Box>
           <Typography variant="subtitle1" fontWeight={700} lineHeight={1.2}>
-            Aggiungi Submodel
+            {t('addSubmodel.title')}
           </Typography>
           <Typography variant="caption" color="text.disabled" fontFamily="monospace">
-            Catalogo IDTA · {catalog.length > 0 ? `${catalog.length} file trovati` : 'caricamento…'}
+            {catalog.length > 0 ? t('addSubmodel.subtitleCount', { count: catalog.length }) : t('addSubmodel.subtitleLoading')}
           </Typography>
         </Box>
         <Box flexGrow={1} />
@@ -413,8 +397,8 @@ export default function AddSubmodelDialog({ open, onClose, onAdd }: AddSubmodelD
             onChange={(_, v) => setTab(v)}
             sx={{ borderBottom: 1, borderColor: 'divider', px: 2 }}
           >
-            <Tab value="catalog" label="Catalogo IDTA" />
-            <Tab value="custom" label="Custom" />
+            <Tab value="catalog" label={t('addSubmodel.tabCatalog')} />
+            <Tab value="custom" label={t('addSubmodel.tabCustom')} />
           </Tabs>
 
           {tab === 'catalog' ? (
@@ -424,7 +408,7 @@ export default function AddSubmodelDialog({ open, onClose, onAdd }: AddSubmodelD
                 <Stack direction="row" spacing={1} alignItems="center">
                   <TextField
                     size="small"
-                    placeholder="Cerca nome, codice IDTA, versione…"
+                    placeholder={t('addSubmodel.searchPlaceholder')}
                     value={search}
                     onChange={(e: ChangeEvent<HTMLInputElement>) => setSearch(e.target.value)}
                     sx={{ flex: 1 }}
@@ -439,7 +423,7 @@ export default function AddSubmodelDialog({ open, onClose, onAdd }: AddSubmodelD
                     }}
                   />
                   <Chip
-                    label="Solo Template"
+                    label={t('addSubmodel.onlyTemplates')}
                     size="small"
                     clickable
                     variant={onlyTemplates ? 'filled' : 'outlined'}
@@ -449,7 +433,7 @@ export default function AddSubmodelDialog({ open, onClose, onAdd }: AddSubmodelD
                   {metamodelVersions.map(v => (
                     <Chip
                       key={v}
-                      label={v === 'All' ? 'Tutti metamodel' : `AAS ${v}`}
+                      label={v === 'All' ? t('addSubmodel.allMetamodels') : `AAS ${v}`}
                       size="small"
                       clickable
                       variant={metamodelFilter === v ? 'filled' : 'outlined'}
@@ -480,7 +464,7 @@ export default function AddSubmodelDialog({ open, onClose, onAdd }: AddSubmodelD
                   <Stack alignItems="center" justifyContent="center" height="100%" spacing={1.5}>
                     <CircularProgress size={32} />
                     <Typography variant="caption" color="text.secondary">
-                      Caricamento catalogo IDTA da GitHub…
+                      {t('addSubmodel.loadingCatalog')}
                     </Typography>
                   </Stack>
                 )}
@@ -550,7 +534,7 @@ export default function AddSubmodelDialog({ open, onClose, onAdd }: AddSubmodelD
 
                 {!catalogLoading && !catalogError && filtered.length === 0 && catalog.length > 0 && (
                   <Typography variant="body2" color="text.secondary" textAlign="center" mt={4}>
-                    Nessun risultato. Prova a modificare i filtri o la ricerca.
+                    {t('addSubmodel.noResults')}
                   </Typography>
                 )}
               </Box>
@@ -576,7 +560,7 @@ export default function AddSubmodelDialog({ open, onClose, onAdd }: AddSubmodelD
                 slotProps={{ input: { sx: { fontFamily: 'monospace' } } }}
               />
               <TextField
-                label="Descrizione"
+                label={t('addSubmodel.descriptionLabel')}
                 size="small"
                 fullWidth
                 multiline
@@ -595,7 +579,7 @@ export default function AddSubmodelDialog({ open, onClose, onAdd }: AddSubmodelD
             p={1.5}
             sx={{ borderTop: 1, borderColor: 'divider' }}
           >
-            <Button onClick={handleClose}>Annulla</Button>
+            <Button onClick={handleClose}>{t('common.buttons.cancel')}</Button>
             <Button
               variant="contained"
               disabled={!canAdd || adding}
@@ -604,7 +588,7 @@ export default function AddSubmodelDialog({ open, onClose, onAdd }: AddSubmodelD
               }
               onClick={handleAdd}
             >
-              {adding ? 'Caricamento…' : 'Aggiungi'}
+              {adding ? t('addSubmodel.adding') : t('addSubmodel.add')}
             </Button>
           </Stack>
         </Box>
@@ -632,10 +616,10 @@ export default function AddSubmodelDialog({ open, onClose, onAdd }: AddSubmodelD
             </Avatar>
             <Box>
               <Typography variant="subtitle2" lineHeight={1.2}>
-                AAS Assistant
+                {t('addSubmodel.assistant')}
               </Typography>
               <Typography variant="caption" color="primary.main" fontFamily="monospace">
-                online
+                {t('addSubmodel.online')}
               </Typography>
             </Box>
           </Stack>
@@ -676,7 +660,7 @@ export default function AddSubmodelDialog({ open, onClose, onAdd }: AddSubmodelD
               size="small"
               fullWidth
               value={chatInput}
-              placeholder="Chiedi aiuto…"
+              placeholder={t('addSubmodel.chatPlaceholder')}
               onChange={(e: ChangeEvent<HTMLInputElement>) => setChatInput(e.target.value)}
               onKeyDown={(e: KeyboardEvent) => e.key === 'Enter' && sendChat()}
             />

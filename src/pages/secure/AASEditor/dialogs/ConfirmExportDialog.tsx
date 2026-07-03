@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next';
 import {
   Dialog,
   DialogTitle,
@@ -22,11 +23,12 @@ interface ConfirmExportDialogProps {
 export default function ConfirmExportDialog({
   open,
   fileName,
-  title = 'Esporta AASX',
-  message = 'Vuoi davvero esportare il modello corrente? Il file verrà scaricato sul tuo dispositivo.',
+  title,
+  message,
   onConfirm,
   onClose,
 }: ConfirmExportDialogProps) {
+  const { t } = useTranslation();
   return (
     <Dialog
       open={open}
@@ -39,13 +41,13 @@ export default function ConfirmExportDialog({
       <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1, pb: 1 }}>
         <FileDownloadRounded color="primary" />
         <Typography variant="h6" fontWeight={700}>
-          {title}
+          {title ?? t('confirmExport.title')}
         </Typography>
       </DialogTitle>
 
       <DialogContent>
         <Typography variant="body2" color="text.secondary">
-          {message}
+          {message ?? t('confirmExport.message')}
         </Typography>
         <Box
           sx={{
@@ -66,7 +68,7 @@ export default function ConfirmExportDialog({
 
       <DialogActions sx={{ px: 3, pb: 2 }}>
         <Button onClick={onClose} variant="outlined" size="small">
-          Annulla
+          {t('common.buttons.cancel')}
         </Button>
         <Button
           onClick={onConfirm}
@@ -75,7 +77,7 @@ export default function ConfirmExportDialog({
           size="small"
           startIcon={<FileDownloadRounded />}
         >
-          Esporta
+          {t('common.buttons.export')}
         </Button>
       </DialogActions>
     </Dialog>

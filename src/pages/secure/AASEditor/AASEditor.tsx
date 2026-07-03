@@ -1,4 +1,5 @@
 import { memo, useState, useCallback, useEffect, useRef, KeyboardEvent } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   Box,
   Button,
@@ -104,6 +105,7 @@ interface ChildRowsProps {
 }
 
 function ChildRows({ smId, elIdx, children, path, expanded, onToggle, onUpdate }: ChildRowsProps) {
+  const { t } = useTranslation();
   return (
     <>
       {children.map((ch, ci) => {
@@ -138,15 +140,15 @@ function ChildRows({ smId, elIdx, children, path, expanded, onToggle, onUpdate }
                   value={ch.value || ''}
                   onChange={(e) => onUpdate(smId, elIdx, childPath, 'value', e.target.value)}
                   onClick={(e) => e.stopPropagation()}
-                  placeholder={ch.valueType ? `(${ch.valueType})` : 'valore…'}
-                  inputProps={{ 'aria-label': `${ch.idShort || ci} valore` }}
+                  placeholder={ch.valueType ? `(${ch.valueType})` : t('editor.childValuePlaceholder')}
+                  inputProps={{ 'aria-label': `${ch.idShort || ci} ${t('editor.colValue')}` }}
                   sx={cellInputSx}
                 />
               )}
               {isContainer && (
                 <>
                   <Typography variant="caption" color="text.secondary" fontFamily="monospace" sx={{ flex: 1 }}>
-                    {(ch.children?.length ?? 0)} {(ch.children?.length ?? 0) === 1 ? 'elemento' : 'elementi'}
+                    {t('editor.elementsCount', { count: ch.children?.length ?? 0 })}
                   </Typography>
                   <ExpandMoreRounded
                     sx={{
@@ -174,7 +176,7 @@ function ChildRows({ smId, elIdx, children, path, expanded, onToggle, onUpdate }
                       onUpdate={onUpdate}
                     />
                   ) : (
-                    <Typography variant="caption" fontFamily="monospace" color="text.secondary">vuoto</Typography>
+                    <Typography variant="caption" fontFamily="monospace" color="text.secondary">{t('editor.empty')}</Typography>
                   )}
                 </Box>
               </Collapse>
@@ -190,6 +192,7 @@ function ChildRows({ smId, elIdx, children, path, expanded, onToggle, onUpdate }
 // mounts the Menu only when clicked. A full Select in every row dominated the
 // mount cost of large submodels.
 function TypeSelectCell({ value, onChange }: { value: XsdValueType | undefined; onChange: (v: XsdValueType) => void }) {
+  const { t } = useTranslation();
   const [anchor, setAnchor] = useState<null | HTMLElement>(null);
   return (
     <>
@@ -198,7 +201,7 @@ function TypeSelectCell({ value, onChange }: { value: XsdValueType | undefined; 
         alignItems="center"
         role="button"
         tabIndex={0}
-        aria-label="Cambia tipo valore"
+        aria-label={t('editor.changeValueType')}
         onClick={(e) => { e.stopPropagation(); setAnchor(e.currentTarget); }}
         onKeyDown={activateOnKey(function noop() { /* opened via click only */ })}
         sx={{ cursor: 'pointer', flex: 1, minWidth: 0, '&:hover': { color: 'primary.main' } }}
@@ -245,6 +248,7 @@ const ElementRow = memo(function ElementRow({
   smId, smPrefix, el, ei, validationResult, expandedElements,
   onToggleElement, onUpdateElement, onUpdateChild,
 }: ElementRowProps) {
+  const { t } = useTranslation();
   const isContainer = el.type === 'SubmodelElementCollection' || el.type === 'SubmodelElementList';
   const dotColor =
     isContainer ? 'warning.main' :
@@ -297,8 +301,8 @@ const ElementRow = memo(function ElementRow({
               fullWidth
               value={typeof el.value === 'string' ? el.value : ''}
               onChange={(e) => onUpdateElement(smId, ei, 'value', e.target.value)}
-              placeholder={`valore (${el.valueType || 'string'})…`}
-              inputProps={{ 'aria-label': `valore ${el.idShort}` }}
+              placeholder={t('editor.valuePlaceholder', { type: el.valueType || 'string' })}
+              inputProps={{ 'aria-label': `${t('editor.colValue')} ${el.idShort}` }}
               sx={cellInputSx}
             />
           )}
@@ -311,7 +315,7 @@ const ElementRow = memo(function ElementRow({
                     fullWidth
                     value={mlv[lang] || ''}
                     onChange={(e) => onUpdateElement(smId, ei, 'value', { ...mlv, [lang]: e.target.value })}
-                    placeholder={`testo (${lang})…`}
+                    placeholder={t('editor.textPlaceholder', { lang })}
                     inputProps={{ 'aria-label': `${el.idShort} ${lang}`, style: { fontSize: 11, paddingTop: 2, paddingBottom: 2 } }}
                   />
                 </Stack>
@@ -320,7 +324,7 @@ const ElementRow = memo(function ElementRow({
           )}
           {isContainer && (
             <Typography variant="caption" color="text.secondary" fontFamily="monospace">
-              {(el.children?.length ?? 0)} {(el.children?.length ?? 0) === 1 ? 'elemento' : 'elementi'}
+              {t('editor.elementsCount', { count: el.children?.length ?? 0 })}
             </Typography>
           )}
           {!isContainer && el.type !== 'Property' && el.type !== 'MultiLanguageProperty' && (
@@ -369,7 +373,7 @@ const ElementRow = memo(function ElementRow({
                 onUpdate={onUpdateChild}
               />
             ) : (
-              <Typography variant="caption" fontFamily="monospace" color="text.secondary">vuoto</Typography>
+              <Typography variant="caption" fontFamily="monospace" color="text.secondary">{t('editor.empty')}</Typography>
             )}
           </Box>
         </Collapse>
@@ -412,6 +416,7 @@ function ElementsTable({
   smId, smPrefix, elements, validationResult, expandedElements,
   onToggleElement, onUpdateElement, onUpdateChild,
 }: ElementsTableProps) {
+  const { t } = useTranslation();
   const [visible, setVisible] = useState(() => Math.min(ROW_CHUNK, elements.length));
   useEffect(() => {
     if (visible >= elements.length) return;
@@ -427,8 +432,8 @@ function ElementsTable({
           sx={{ px: 2.25, py: 0.5, bgcolor: 'action.hover', borderBottom: 1, borderColor: 'divider' }}
         >
           <Typography variant="caption" color="text.secondary" fontWeight={600} sx={{ flex: '0 0 38%' }}>idShort</Typography>
-          <Typography variant="caption" color="text.secondary" fontWeight={600} sx={{ flex: 1 }}>Valore</Typography>
-          <Typography variant="caption" color="text.secondary" fontWeight={600} sx={{ flex: '0 0 140px' }}>Tipo</Typography>
+          <Typography variant="caption" color="text.secondary" fontWeight={600} sx={{ flex: 1 }}>{t('editor.colValue')}</Typography>
+          <Typography variant="caption" color="text.secondary" fontWeight={600} sx={{ flex: '0 0 140px' }}>{t('editor.colType')}</Typography>
         </Stack>
       )}
 
@@ -449,12 +454,12 @@ function ElementsTable({
 
       {visible < elements.length && (
         <Typography variant="caption" fontFamily="monospace" color="text.secondary" textAlign="center" display="block" py={1}>
-          Caricamento elementi… {visible}/{elements.length}
+          {t('editor.loadingElements', { visible, total: elements.length })}
         </Typography>
       )}
       {!elements.length && (
         <Typography variant="caption" fontFamily="monospace" color="text.secondary" textAlign="center" display="block" py={2.5}>
-          Submodel vuoto
+          {t('editor.emptySubmodel')}
         </Typography>
       )}
     </Box>
@@ -485,6 +490,7 @@ const SubmodelCard = memo(function SubmodelCard({
   onToggleSubmodel, onToggleEditSm, onDeleteSubmodel, onToggleElement,
   onUpdateSubmodel, onUpdateElement, onUpdateChild,
 }: SubmodelCardProps) {
+  const { t } = useTranslation();
   const smPrefix = `SM[${idx}]`;
   const smErrors = validationResult?.errors.filter(f => f.path.startsWith(smPrefix)) ?? [];
   const smWarnings = validationResult?.warnings.filter(f => f.path.startsWith(smPrefix)) ?? [];
@@ -538,7 +544,7 @@ const SubmodelCard = memo(function SubmodelCard({
         )}
         <IconButton
           size="small"
-          aria-label="Modifica submodel"
+          aria-label={t('editor.editSubmodel')}
           onClick={(e) => { e.stopPropagation(); onToggleEditSm(idx); }}
           sx={{ 
             color: 'primary.main',
@@ -549,7 +555,7 @@ const SubmodelCard = memo(function SubmodelCard({
         </IconButton>
         <IconButton
           size="small"
-          aria-label="Elimina submodel"
+          aria-label={t('editor.deleteSubmodel')}
           onClick={(e) => { e.stopPropagation(); onDeleteSubmodel(sm); }}
           sx={{ 
             color: 'error.main',
@@ -605,7 +611,7 @@ const SubmodelCard = memo(function SubmodelCard({
               />
             </Box>
             <Box>
-              <FormLabel sx={{ fontSize: 10, mb: 0.5, display: 'block' }}>Descrizione</FormLabel>
+              <FormLabel sx={{ fontSize: 10, mb: 0.5, display: 'block' }}>{t('editor.descriptionLabel')}</FormLabel>
               <TextField
                 size="small"
                 fullWidth
@@ -636,6 +642,7 @@ const SubmodelCard = memo(function SubmodelCard({
 });
 
 export default function AASEditor() {
+  const { t } = useTranslation();
   const {
     selectedModelId, setSelectedModelId,
     availableModels,
@@ -809,7 +816,7 @@ export default function AASEditor() {
           content,
         });
         if (res.status !== 'Success') {
-          showSnackbar(res.message || 'Errore durante il salvataggio', 'error');
+          showSnackbar(res.message || t('editor.saveError'), 'error');
           return;
         }
         const docId = res.data?.document?.document_id;
@@ -817,7 +824,7 @@ export default function AASEditor() {
           // Adopt the server-normalized snapshot (with documentId) for this model,
           // replacing the local working copy now that it is persisted.
           await refreshModels(currentModel.id);
-          showSnackbar('AAS salvato sul server', 'success');
+          showSnackbar(t('editor.savedToServer'), 'success');
         }
       } else {
         const res = await commitSubmodel(currentModel.documentId, {
@@ -828,18 +835,18 @@ export default function AASEditor() {
           status,
         });
         if (res.status !== 'Success') {
-          showSnackbar(res.message || 'Errore durante il commit', 'error');
+          showSnackbar(res.message || t('editor.commitError'), 'error');
           return;
         }
         await refreshModels(currentModel.id);
-        showSnackbar('Commit salvato sul server', 'success');
+        showSnackbar(t('editor.commitSaved'), 'success');
       }
     } catch (err: any) {
-      showSnackbar(err?.message || 'Errore durante il salvataggio sul server', 'error');
+      showSnackbar(err?.message || t('editor.saveServerError'), 'error');
     } finally {
       setIsSaving(false);
     }
-  }, [aasIdShort, aasAssetId, aasDescription, submodels, currentModel, createDocument, commitSubmodel, refreshModels, showSnackbar]);
+  }, [aasIdShort, aasAssetId, aasDescription, submodels, currentModel, createDocument, commitSubmodel, refreshModels, showSnackbar, t]);
 
   // Empty state: no AAS model yet (fresh DB / nothing imported). Placed after
   // ALL hooks so the hook order never changes between renders; the "Nuova
@@ -849,9 +856,9 @@ export default function AASEditor() {
       <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', p: 4 }}>
         <Stack alignItems="center" spacing={1.5} sx={{ maxWidth: 420, textAlign: 'center' }}>
           <Inventory2Rounded sx={{ fontSize: 48, color: 'text.secondary' }} />
-          <Typography variant="h6" fontWeight={600}>Nessun modello AAS</Typography>
+          <Typography variant="h6" fontWeight={600}>{t('editor.noModelTitle')}</Typography>
           <Typography variant="body2" color="text.secondary">
-            Crea un nuovo modello AAS o importa un file JSON standard per iniziare.
+            {t('editor.noModelBody')}
           </Typography>
           <Button
             variant="contained"
@@ -859,7 +866,7 @@ export default function AASEditor() {
             onClick={() => setShowAddEntityDialog(true)}
             sx={{ mt: 1 }}
           >
-            Nuovo modello
+            {t('editor.newModel')}
           </Button>
         </Stack>
         <AddEntityDialog
@@ -885,7 +892,7 @@ export default function AASEditor() {
         {/* ── Model rail (replaces the model dropdown) ── */}
         <Box
           component="nav"
-          aria-label="Modelli AAS"
+          aria-label={t('editor.modelsNav')}
           sx={{
             width: railCollapsed ? 56 : 208,
             flexShrink: 0,
@@ -905,13 +912,13 @@ export default function AASEditor() {
             sx={{ px: railCollapsed ? 0 : 1.5, minHeight: 48, flexShrink: 0 }}
           >
             {!railCollapsed && (
-              <Typography variant="overline" color="text.secondary" noWrap>Modelli</Typography>
+              <Typography variant="overline" color="text.secondary" noWrap>{t('editor.models')}</Typography>
             )}
-            <Tooltip title={railCollapsed ? 'Espandi elenco' : 'Comprimi elenco'} arrow placement="right">
+            <Tooltip title={railCollapsed ? t('editor.expandList') : t('editor.collapseList')} arrow placement="right">
               <IconButton
                 size="small"
                 onClick={() => setRailCollapsed(v => !v)}
-                aria-label={railCollapsed ? 'Espandi elenco modelli' : 'Comprimi elenco modelli'}
+                aria-label={railCollapsed ? t('editor.expandList') : t('editor.collapseList')}
               >
                 <MenuOpenRounded sx={{ fontSize: 18, transform: railCollapsed ? 'rotate(180deg)' : 'none', transition: 'transform .2s' }} />
               </IconButton>
@@ -955,10 +962,10 @@ export default function AASEditor() {
                           </Typography>
                         )}
                         {showInfo && (
-                          <Tooltip title="Elimina modello" arrow>
+                          <Tooltip title={t('editor.deleteModel')} arrow>
                             <IconButton
                               size="small"
-                              aria-label={`Elimina ${name}`}
+                              aria-label={`${t('common.buttons.delete')} ${name}`}
                               onClick={(e) => { e.stopPropagation(); setShowDeleteConfirm(true); }}
                               sx={{ 
                                 flexShrink: 0, my: -0.5, 
@@ -1016,7 +1023,7 @@ export default function AASEditor() {
                 sx={{ minWidth: 120, maxWidth: 340 }}
               />
 
-              <Tooltip title="Cambia stato del commit corrente" arrow>
+              <Tooltip title={t('editor.statusTooltip')} arrow>
                 <Chip
                   size="small"
                   label={
@@ -1043,12 +1050,12 @@ export default function AASEditor() {
               {currentModel.dirty ? (
                 <Stack direction="row" alignItems="center" spacing={0.5}>
                   <Box sx={{ width: 7, height: 7, borderRadius: '50%', bgcolor: 'warning.main', flexShrink: 0 }} />
-                  <Typography variant="caption" color="warning.main" fontWeight={600}>Non salvato</Typography>
+                  <Typography variant="caption" color="warning.main" fontWeight={600}>{t('editor.unsaved')}</Typography>
                 </Stack>
               ) : (
                 <Stack direction="row" alignItems="center" spacing={0.5}>
                   <CheckRounded sx={{ fontSize: 14, color: 'success.main' }} />
-                  <Typography variant="caption" color="text.secondary">Salvato</Typography>
+                  <Typography variant="caption" color="text.secondary">{t('editor.saved')}</Typography>
                 </Stack>
               )}
 
@@ -1061,10 +1068,10 @@ export default function AASEditor() {
                 onChange={(_, v) => v && setEditorView(v as EditorView)}
               >
                 <ToggleButton value="list">
-                  <FormatListBulletedRounded sx={{ fontSize: 16, mr: 0.5 }} /> Lista
+                  <FormatListBulletedRounded sx={{ fontSize: 16, mr: 0.5 }} /> {t('editor.viewList')}
                 </ToggleButton>
                 <ToggleButton value="graph">
-                  <AccountTreeRounded sx={{ fontSize: 16, mr: 0.5 }} /> Grafo
+                  <AccountTreeRounded sx={{ fontSize: 16, mr: 0.5 }} /> {t('editor.viewGraph')}
                 </ToggleButton>
               </ToggleButtonGroup>
             </Stack>
@@ -1098,10 +1105,10 @@ export default function AASEditor() {
                   startIcon={<HistoryRounded />}
                   onClick={() => setShowHistory(v => !v)}
                 >
-                  Cronologia
+                  {t('editor.historyBtn')}
                 </Button>
 
-                <Tooltip title="Salva commit (Ctrl+S)" arrow>
+                <Tooltip title={t('editor.commitTooltip')} arrow>
                   <span>
                     <Button
                       variant="contained"
@@ -1110,7 +1117,7 @@ export default function AASEditor() {
                       onClick={() => setShowCommitDialog(true)}
                       disabled={isSaving || (!currentModel.dirty && Boolean(currentModel.documentId))}
                     >
-                      Commit
+                      {t('editor.commit')}
                     </Button>
                   </span>
                 </Tooltip>
@@ -1129,14 +1136,14 @@ export default function AASEditor() {
           >
             <Box sx={{ px: 2, pt: 1.25, pb: 0.75 }}>
               <Typography variant="caption" color="text.secondary" fontWeight={700} textTransform="uppercase" letterSpacing={0.6}>
-                Stato commit locale
+                {t('editor.localCommitStatus')}
               </Typography>
             </Box>
             {([
-              { status: 'Draft',      icon: <EditNoteRounded fontSize="small" />,      color: 'warning.main', desc: 'In lavorazione, modificabile' },
-              { status: 'Active',     icon: <CheckCircleRounded fontSize="small" />,   color: 'success.main', desc: 'Approvato e in uso operativo' },
-              { status: 'Deprecated', icon: <ArchiveRounded fontSize="small" />,       color: 'text.secondary', desc: 'Sorpassato da versione più recente' },
-            ] as const).map(({ status, icon, color, desc }) => (
+              { status: 'Draft',      icon: <EditNoteRounded fontSize="small" />,      color: 'warning.main' },
+              { status: 'Active',     icon: <CheckCircleRounded fontSize="small" />,   color: 'success.main' },
+              { status: 'Deprecated', icon: <ArchiveRounded fontSize="small" />,       color: 'text.secondary' },
+            ] as const).map(({ status, icon, color }) => (
               <MenuItem
                 key={status}
                 selected={currentVersion.status === status}
@@ -1146,7 +1153,7 @@ export default function AASEditor() {
                 <ListItemIcon sx={{ color }}>{icon}</ListItemIcon>
                 <ListItemText
                   primary={status}
-                  secondary={desc}
+                  secondary={t(`editor.statusDesc.${status}`)}
                   primaryTypographyProps={{ fontWeight: 700, fontSize: 13 }}
                   secondaryTypographyProps={{ fontSize: 11 }}
                 />
@@ -1201,30 +1208,30 @@ export default function AASEditor() {
                         {validationResult.valid ? (
                           validationResult.warnings.length > 0 ? (
                             <Typography variant="body2" color="warning.main" fontWeight={600}>
-                              Conforme agli standard IDTA — {validationResult.warnings.length} {validationResult.warnings.length === 1 ? 'avviso' : 'avvisi'}
+                              {t('editor.compliantWithWarnings', { count: validationResult.warnings.length })}
                             </Typography>
                           ) : (
-                            <Typography variant="body2" color="success.main" fontWeight={600}>Modello conforme agli standard IDTA</Typography>
+                            <Typography variant="body2" color="success.main" fontWeight={600}>{t('editor.compliant')}</Typography>
                           )
                         ) : (
                           <Stack direction="row" spacing={1.5} alignItems="center">
                             <Typography variant="body2" color="error.main" fontWeight={600}>
-                              {validationResult.errors.length} {validationResult.errors.length === 1 ? 'errore' : 'errori'}
+                              {t('editor.errorsCount', { count: validationResult.errors.length })}
                             </Typography>
                             {validationResult.warnings.length > 0 && (
                               <Typography variant="body2" color="warning.main" fontWeight={600}>
-                                {validationResult.warnings.length} {validationResult.warnings.length === 1 ? 'avviso' : 'avvisi'}
+                                {t('editor.warningsCount', { count: validationResult.warnings.length })}
                               </Typography>
                             )}
                           </Stack>
                         )}
                       </Box>
                       {(validationResult.errors.length + validationResult.warnings.length) > 0 && (
-                        <IconButton size="small" aria-label="Mostra dettagli validazione" onClick={() => setValidationExpanded(e => !e)} sx={{ color: 'text.secondary' }}>
+                        <IconButton size="small" aria-label={t('editor.showValidationDetails')} onClick={() => setValidationExpanded(e => !e)} sx={{ color: 'text.secondary' }}>
                           <ExpandMoreRounded sx={{ fontSize: 18, transition: 'transform .2s', transform: validationExpanded ? 'rotate(180deg)' : 'none' }} />
                         </IconButton>
                       )}
-                      <IconButton size="small" aria-label="Chiudi validazione" onClick={() => setValidationResult(null)} sx={{ color: 'text.secondary' }}>
+                      <IconButton size="small" aria-label={t('editor.closeValidation')} onClick={() => setValidationResult(null)} sx={{ color: 'text.secondary' }}>
                         <CloseRounded sx={{ fontSize: 16 }} />
                       </IconButton>
                     </Box>
@@ -1256,8 +1263,8 @@ export default function AASEditor() {
                 {!submodels.length && !dragOver && (
                   <Stack alignItems="center" justifyContent="center" sx={{ height: '100%', minHeight: 200 }} spacing={0.75}>
                     <WidgetsRounded sx={{ fontSize: 40, color: 'text.secondary' }} />
-                    <Typography variant="body2" fontWeight={500} color="text.secondary">Trascina un Submodel qui</Typography>
-                    <Typography variant="caption" fontFamily="monospace" color="text.secondary">oppure usa «Aggiungi Submodel» qui sotto</Typography>
+                    <Typography variant="body2" fontWeight={500} color="text.secondary">{t('editor.dropSubmodel')}</Typography>
+                    <Typography variant="caption" fontFamily="monospace" color="text.secondary">{t('editor.orUseAdd')}</Typography>
                   </Stack>
                 )}
 
@@ -1291,7 +1298,7 @@ export default function AASEditor() {
                     onClick={() => setShowAddDialog(true)}
                     sx={{ borderStyle: 'dashed', fontFamily: 'monospace' }}
                   >
-                    Aggiungi Submodel
+                    {t('editor.addSubmodel')}
                   </Button>
                 </Box>
               </>
@@ -1313,42 +1320,44 @@ export default function AASEditor() {
       <AddEntityDialog open={showAddEntityDialog} onClose={() => setShowAddEntityDialog(false)} onAdd={createModel} onImport={importAas} />
 
       <Dialog open={showDeleteConfirm} onClose={() => setShowDeleteConfirm(false)}>
-        <DialogTitle>Elimina AAS</DialogTitle>
+        <DialogTitle>{t('editor.deleteAasTitle')}</DialogTitle>
         <DialogContent>
           <DialogContentText>
-            Vuoi eliminare l'AAS "{currentModel?.idShort}" e tutti i suoi submodel? L'azione non può essere annullata.
+            {t('editor.deleteAasMessage', { name: currentModel?.idShort })}
           </DialogContentText>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setShowDeleteConfirm(false)}>Annulla</Button>
+          <Button onClick={() => setShowDeleteConfirm(false)}>{t('common.buttons.cancel')}</Button>
           <Button
             color="error"
             variant="contained"
             onClick={() => { deleteModel(); setShowDeleteConfirm(false); }}
           >
-            Elimina
+            {t('common.buttons.delete')}
           </Button>
         </DialogActions>
       </Dialog>
 
       <Dialog open={Boolean(submodelToDelete)} onClose={() => setSubmodelToDelete(null)}>
-        <DialogTitle>Elimina Submodel</DialogTitle>
+        <DialogTitle>{t('editor.deleteSmTitle')}</DialogTitle>
         <DialogContent>
           <DialogContentText>
-            Vuoi eliminare il submodel "{submodelToDelete?.idShort}"
-            {submodelToDelete?.elements?.length
-              ? ` e i suoi ${submodelToDelete.elements.length} ${submodelToDelete.elements.length === 1 ? 'elemento' : 'elementi'}`
-              : ''}? L'azione non può essere annullata.
+            {t('editor.deleteSmMessage', {
+              name: submodelToDelete?.idShort,
+              elements: submodelToDelete?.elements?.length
+                ? t('editor.deleteSmElements', { count: submodelToDelete.elements.length })
+                : '',
+            })}
           </DialogContentText>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setSubmodelToDelete(null)}>Annulla</Button>
+          <Button onClick={() => setSubmodelToDelete(null)}>{t('common.buttons.cancel')}</Button>
           <Button
             color="error"
             variant="contained"
             onClick={() => { if (submodelToDelete) removeSubmodel(submodelToDelete.id); setSubmodelToDelete(null); }}
           >
-            Elimina
+            {t('common.buttons.delete')}
           </Button>
         </DialogActions>
       </Dialog>

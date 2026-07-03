@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   Box,
   Button,
@@ -51,8 +52,8 @@ const STATUS_COLOR: Record<CommitStatus, 'success' | 'warning' | 'default'> = {
 
 function shortHash(hash: string) { return hash.slice(0, 7); }
 
-function fmtDate(iso: string) {
-  return new Date(iso).toLocaleString('it-IT', {
+function fmtDate(iso: string, locale: string) {
+  return new Date(iso).toLocaleString(locale === 'it' ? 'it-IT' : 'en-US', {
     day: '2-digit', month: 'short', year: 'numeric',
     hour: '2-digit', minute: '2-digit',
   });
@@ -76,6 +77,7 @@ function CommitRow({
   commit, isHead, currentBranch, isSelected,
   onSelect, onCheckout, onRestore, onStatusChange, loading,
 }: CommitRowProps) {
+  const { t, i18n } = useTranslation();
   return (
     <Box
       onClick={onSelect}
@@ -104,37 +106,37 @@ function CommitRow({
         {commit.message}
       </Typography>
       <Typography variant="caption" color="text.disabled" fontFamily="monospace">
-        v{commit.version} rev {commit.revision} · {fmtDate(commit.createdAt)}
+        v{commit.version} rev {commit.revision} · {fmtDate(commit.createdAt, i18n.language)}
       </Typography>
 
       <Collapse in={isSelected}>
         <Stack direction="row" spacing={0.75} mt={1} flexWrap="wrap" useFlexGap>
-          <Tooltip title="Carica questo snapshot nell'editor">
+          <Tooltip title={t('history.checkoutTooltip')}>
             <Button size="small" variant="outlined"
               startIcon={<HistoryRounded sx={{ fontSize: 13 }} />}
               disabled={loading}
               onClick={(e) => { e.stopPropagation(); onCheckout(commit.commit_id); }}
               sx={{ fontSize: 10, py: 0.25 }}>
-              Checkout
+              {t('history.checkout')}
             </Button>
           </Tooltip>
-          <Tooltip title="Crea un nuovo commit che ripristina questo snapshot">
+          <Tooltip title={t('history.restoreTooltip')}>
             <Button size="small" variant="outlined" color="warning"
               startIcon={<RestoreRounded sx={{ fontSize: 13 }} />}
               disabled={loading}
               onClick={(e) => { e.stopPropagation(); onRestore(commit.commit_id); }}
               sx={{ fontSize: 10, py: 0.25 }}>
-              Restore
+              {t('history.restore')}
             </Button>
           </Tooltip>
           {commit.status !== 'Active' && (
-            <Tooltip title="Promuovi a Active">
+            <Tooltip title={t('history.setActiveTooltip')}>
               <Button size="small" variant="outlined" color="success"
                 startIcon={<CheckCircleOutlineRounded sx={{ fontSize: 13 }} />}
                 disabled={loading}
                 onClick={(e) => { e.stopPropagation(); onStatusChange(commit.commit_id, 'Active'); }}
                 sx={{ fontSize: 10, py: 0.25 }}>
-                Set Active
+                {t('history.setActive')}
               </Button>
             </Tooltip>
           )}
@@ -186,6 +188,7 @@ export default function VersionHistoryDrawer({
   open, onClose, documentId,
   onCheckoutContent, onAfterCommit, onOpenCommitDialog,
 }: VersionHistoryDrawerProps) {
+  const { t } = useTranslation();
   const versioning = useAASVersioning();
   const { showSnackbar } = useCustomSnackbar();
 
@@ -217,11 +220,11 @@ export default function VersionHistoryDrawer({
       if (refsRes.status === 'Success') setRefs(refsRes.data.refs ?? []);
       else setError(refsRes.message);
     } catch {
-      setError('Errore nel caricamento della history');
+      setError(t('history.loadError'));
     } finally {
       setLoading(false);
     }
-  }, [documentId, selectedRef]);
+  }, [documentId, selectedRef, t]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (open && documentId) loadData();
@@ -236,9 +239,9 @@ export default function VersionHistoryDrawer({
       const res = await versioning.checkout(documentId, { commit_id: commitId });
       if (res.status === 'Success' && res.data?.content) {
         onCheckoutContent(res.data.content);
-        showSnackbar('Snapshot caricato nell\'editor', 'success');
+        showSnackbar(t('history.snapshotLoaded'), 'success');
       } else {
-        const msg = res.message || 'Checkout fallito';
+        const msg = res.message || t('history.checkoutFailed');
         setError(msg);
         showSnackbar(msg, 'error');
       }
@@ -255,9 +258,9 @@ export default function VersionHistoryDrawer({
       if (res.status === 'Success') {
         await loadData();
         onAfterCommit?.();
-        showSnackbar('Commit ripristinato', 'success');
+        showSnackbar(t('history.restored'), 'success');
       } else {
-        const msg = res.message || 'Restore fallito';
+        const msg = res.message || t('history.restoreFailed');
         setError(msg);
         showSnackbar(msg, 'error');
       }
@@ -272,7 +275,7 @@ export default function VersionHistoryDrawer({
     try {
       const res = await versioning.setCommitStatus(documentId, commitId, status);
       if (res.status === 'Success') await loadData();
-      else setError(res.message || 'Errore cambio stato');
+      else setError(res.message || t('history.statusChangeError'));
     } finally {
       setActionLoading(false);
     }
@@ -288,7 +291,7 @@ export default function VersionHistoryDrawer({
         setShowBranchForm(false);
         await loadData();
       } else {
-        setError(res.message || 'Errore creazione branch');
+        setError(res.message || t('history.branchError'));
       }
     } finally {
       setActionLoading(false);
@@ -301,7 +304,7 @@ export default function VersionHistoryDrawer({
     try {
       const res = await versioning.switchBranch(documentId, refName);
       if (res.status === 'Success') { await loadData(); onAfterCommit?.(); }
-      else setError(res.message || 'Errore switch branch');
+      else setError(res.message || t('history.switchError'));
     } finally {
       setActionLoading(false);
     }
@@ -344,7 +347,7 @@ export default function VersionHistoryDrawer({
       <Stack direction="row" alignItems="center" spacing={1}
         sx={{ px: 2, py: 1.5, borderBottom: 1, borderColor: 'divider', flexShrink: 0 }}>
         <HistoryRounded sx={{ fontSize: 18, color: 'primary.main' }} />
-        <Typography variant="subtitle2" fontWeight={700} flex={1}>Version History</Typography>
+        <Typography variant="subtitle2" fontWeight={700} flex={1}>{t('history.title')}</Typography>
         {(loading || actionLoading) && <CircularProgress size={14} />}
         <IconButton size="small" onClick={onClose}>
           <CloseRounded sx={{ fontSize: 16 }} />
@@ -362,7 +365,7 @@ export default function VersionHistoryDrawer({
               sx={{ fontFamily: 'monospace', fontSize: 11 }}
             >
               <MenuItem value="ALL" sx={{ fontFamily: 'monospace', fontSize: 11 }}>
-                — tutti i commit —
+                {t('history.allCommits')}
               </MenuItem>
               <MenuItem value="HEAD" sx={{ fontFamily: 'monospace', fontSize: 11 }}>
                 HEAD{headBranchName ? ` → ${headBranchName}` : ''}{headRef?.commit ? ` (${shortHash(headRef.commit.commit_hash)})` : ''}
@@ -376,7 +379,7 @@ export default function VersionHistoryDrawer({
             </Select>
           </FormControl>
           {selectedRef !== 'HEAD' && selectedRef !== 'ALL' && (
-            <Tooltip title={`Sposta HEAD su '${selectedRef}'`}>
+            <Tooltip title={t('history.moveHead', { ref: selectedRef })}>
               <IconButton size="small" onClick={() => handleSwitchBranch(selectedRef)} disabled={actionLoading}>
                 <CallMergeRounded sx={{ fontSize: 15 }} />
               </IconButton>
@@ -388,14 +391,14 @@ export default function VersionHistoryDrawer({
       {/* Action buttons */}
       <Stack direction="row" spacing={1}
         sx={{ px: 2, py: 1, borderBottom: 1, borderColor: 'divider', flexShrink: 0 }}>
-        <Tooltip title="Salva lo stato corrente come nuovo commit">
+        <Tooltip title={t('history.commitTooltip')}>
           <Button
             size="small" variant="outlined"
             startIcon={<SaveRounded sx={{ fontSize: 13 }} />}
             onClick={onOpenCommitDialog}
             sx={{ fontSize: 10 }}
           >
-            Commit
+            {t('history.commit')}
           </Button>
         </Tooltip>
         <Button
@@ -405,10 +408,10 @@ export default function VersionHistoryDrawer({
           disabled={!documentId}
           sx={{ fontSize: 10 }}
         >
-          Branch
+          {t('history.branch')}
         </Button>
         <Box flex={1} />
-        <Tooltip title="Confronta due commit selezionati">
+        <Tooltip title={t('history.compareTooltip')}>
           <span>
             <IconButton size="small" disabled>
               <CompareArrowsRounded sx={{ fontSize: 15 }} />
@@ -421,11 +424,11 @@ export default function VersionHistoryDrawer({
       <Collapse in={showBranchForm}>
         <Box sx={{ px: 2, py: 1.5, borderBottom: 1, borderColor: 'divider', bgcolor: 'rgba(99,102,241,.04)' }}>
           <Typography variant="caption" color="text.secondary" display="block" mb={1}>
-            Crea branch da HEAD corrente
+            {t('history.createBranchFrom')}
           </Typography>
           <TextField
             size="small" fullWidth
-            placeholder="Nome branch (es. release-2.0)…"
+            placeholder={t('history.branchPlaceholder')}
             value={branchName}
             onChange={(e) => setBranchName(e.target.value)}
             slotProps={{ input: { style: { fontFamily: 'monospace', fontSize: 11 } } }}
@@ -435,10 +438,10 @@ export default function VersionHistoryDrawer({
             <Button size="small" variant="contained"
               disabled={!branchName.trim() || actionLoading}
               onClick={handleCreateBranch} sx={{ fontSize: 10 }}>
-              Crea
+              {t('common.buttons.create')}
             </Button>
             <Button size="small" onClick={() => setShowBranchForm(false)} sx={{ fontSize: 10 }}>
-              Annulla
+              {t('common.buttons.cancel')}
             </Button>
           </Stack>
         </Box>
@@ -461,13 +464,13 @@ export default function VersionHistoryDrawer({
           <Stack alignItems="center" justifyContent="center" height={120} spacing={1} px={2}>
             <HistoryRounded sx={{ fontSize: 32, color: 'text.disabled' }} />
             <Typography variant="caption" color="text.disabled" textAlign="center">
-              Nessun documento collegato. Usa <strong>Commit</strong> nel toolbar per creare il primo snapshot.
+              {t('history.noDocument')}
             </Typography>
           </Stack>
         ) : commits.length === 0 ? (
           <Stack alignItems="center" justifyContent="center" height={120} spacing={0.5}>
             <HistoryRounded sx={{ fontSize: 32, color: 'text.disabled' }} />
-            <Typography variant="caption" color="text.disabled">Nessun commit</Typography>
+            <Typography variant="caption" color="text.disabled">{t('history.noCommits')}</Typography>
           </Stack>
         ) : (
           <Stack spacing={0.75}>
@@ -492,7 +495,7 @@ export default function VersionHistoryDrawer({
       <Divider />
       <Box sx={{ px: 2, py: 1, flexShrink: 0 }}>
         <Typography variant="caption" color="text.disabled" fontFamily="monospace">
-          {commits.length} commit · {branches.length} branch
+          {t('history.footer', { commits: commits.length, branches: branches.length })}
         </Typography>
       </Box>
     </Drawer>

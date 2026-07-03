@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   Alert,
   Box,
@@ -52,6 +53,7 @@ type ValidationResultData = {
 };
 
 export default function ValidationDialog({ open, onClose, initialValidationData, onImport }: ValidationDialogProps) {
+  const { t } = useTranslation();
   const theme = useTheme();
   const fullScreen = useMediaQuery(theme.breakpoints.down('sm'));
 
@@ -94,7 +96,7 @@ export default function ValidationDialog({ open, onClose, initialValidationData,
       setResult(null);
       setParsedData(null);
     } else {
-      alert('File type non supportato. Usa .aasx, .json o .xml');
+      alert(t('validation.unsupportedFile'));
     }
   };
 
@@ -297,10 +299,10 @@ export default function ValidationDialog({ open, onClose, initialValidationData,
         <CheckCircleOutlineRounded color="primary" />
         <Box>
           <Typography variant="subtitle1" fontWeight={700} lineHeight={1.2}>
-            AAS Compliance Validation
+            {t('validation.title')}
           </Typography>
           <Typography variant="caption" color="text.disabled">
-            {isInMemoryValidation ? 'Validazione del modello corrente' : 'Validazione per file .aasx, .json, e .xml'}
+            {isInMemoryValidation ? t('validation.subtitleMemory') : t('validation.subtitleFile')}
           </Typography>
         </Box>
         <Box flexGrow={1} />
@@ -350,17 +352,17 @@ export default function ValidationDialog({ open, onClose, initialValidationData,
                     onClick={(e) => { e.stopPropagation(); resetDialog(); }}
                     sx={{ mt: 1 }}
                   >
-                    Cambia file
+                    {t('validation.changeFile')}
                   </Button>
                 </Stack>
               ) : (
                 <Stack alignItems="center" spacing={1}>
                   <CloudUploadRounded color="primary" sx={{ fontSize: 48, opacity: 0.8 }} />
                   <Typography variant="body1" fontWeight={600}>
-                    Trascina il file qui o clicca per caricare
+                    {t('validation.dropText')}
                   </Typography>
                   <Typography variant="caption" color="text.disabled">
-                    Supporta .aasx, .json, .xml
+                    {t('validation.supports')}
                   </Typography>
                 </Stack>
               )}
@@ -376,7 +378,7 @@ export default function ValidationDialog({ open, onClose, initialValidationData,
                   startIcon={isLoading ? <CircularProgress size={20} color="inherit" /> : <CheckCircleOutlineRounded />}
                   size="large"
                 >
-                  {isLoading ? 'Validazione in corso...' : 'Valida Pacchetto'}
+                  {isLoading ? t('validation.validating') : t('validation.validateBtn')}
                 </Button>
               </Box>
             )}
@@ -388,7 +390,7 @@ export default function ValidationDialog({ open, onClose, initialValidationData,
            <Box sx={{ p: 5, textAlign: 'center' }}>
               <CircularProgress size={40} sx={{ mb: 2 }} />
               <Typography variant="body2" color="text.secondary">
-                Validazione del modello in corso...
+                {t('validation.validatingModel')}
               </Typography>
            </Box>
         )}
@@ -397,23 +399,23 @@ export default function ValidationDialog({ open, onClose, initialValidationData,
           <Box sx={{ p: 3, borderTop: isInMemoryValidation ? 0 : 1, borderColor: 'divider', flex: 1, overflowY: 'auto' }}>
             {result.compliant ? (
               <Alert severity="success" variant="outlined" sx={{ mb: 2 }}>
-                <Typography variant="subtitle2" fontWeight={700}>Validazione con successo</Typography>
+                <Typography variant="subtitle2" fontWeight={700}>{t('validation.successTitle')}</Typography>
                 <Typography variant="body2">
-                  {isInMemoryValidation 
-                    ? 'Il modello è completamente conforme agli standard IDTA.' 
-                    : 'Il pacchetto AAS è completamente conforme agli standard IDTA.'}
+                  {isInMemoryValidation
+                    ? t('validation.successModel')
+                    : t('validation.successPackage')}
                 </Typography>
               </Alert>
             ) : (
               <Box>
                 <Alert severity="error" variant="outlined" sx={{ mb: 3 }}>
                   <Typography variant="subtitle2" fontWeight={700}>
-                    Trovati Errori [{result.errors.reduce((sum, err) => sum + err.occurrences, 0)}]
+                    {t('validation.errorsFound', { count: result.errors.reduce((sum: number, err) => sum + err.occurrences, 0) })}
                   </Typography>
                   <Typography variant="body2">
-                    {isInMemoryValidation 
-                      ? 'Il modello non è conforme agli standard IDTA. Risolvi i problemi indicati di seguito prima di esportarlo.' 
-                      : 'Il pacchetto non è conforme agli standard IDTA. Risolvi i problemi indicati di seguito.'}
+                    {isInMemoryValidation
+                      ? t('validation.notCompliantModel')
+                      : t('validation.notCompliantPackage')}
                   </Typography>
                 </Alert>
 
@@ -427,7 +429,7 @@ export default function ValidationDialog({ open, onClose, initialValidationData,
                             {error.constraint}
                           </Typography>
                           <Typography variant="caption" sx={{ opacity: 0.8 }}>
-                            Occorrenze: {error.occurrences}
+                            {t('validation.occurrences', { count: error.occurrences })}
                           </Typography>
                           {error.message && (
                             <Typography variant="body2" sx={{ mt: 1, opacity: 0.9 }}>
@@ -439,7 +441,7 @@ export default function ValidationDialog({ open, onClose, initialValidationData,
                       <Accordion disableGutters elevation={0} square sx={{ '&:before': { display: 'none' } }}>
                         <AccordionSummary expandIcon={<ExpandMoreRounded />} sx={{ minHeight: 40, '& .MuiAccordionSummary-content': { my: 1 } }}>
                           <Typography variant="caption" fontWeight={600} color="text.secondary">
-                            Mostra posizioni ({error.locations.length})
+                            {t('validation.showLocations', { count: error.locations.length })}
                           </Typography>
                         </AccordionSummary>
                         <AccordionDetails sx={{ p: 0, borderTop: 1, borderColor: 'divider' }}>
@@ -464,14 +466,14 @@ export default function ValidationDialog({ open, onClose, initialValidationData,
       </DialogContent>
 
       <DialogActions>
-        <Button onClick={onClose}>Chiudi</Button>
+        <Button onClick={onClose}>{t('common.buttons.close')}</Button>
         {!isInMemoryValidation && result && (
-          <Button 
-            variant="contained" 
-            color="success" 
+          <Button
+            variant="contained"
+            color="success"
             onClick={handleImport}
           >
-            Import to Editor
+            {t('validation.importToEditor')}
           </Button>
         )}
       </DialogActions>

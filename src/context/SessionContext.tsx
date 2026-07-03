@@ -1,5 +1,6 @@
 import { createContext, useState, useContext, ReactNode } from 'react';
 import Operator from '@/models/Operator';
+import { setAccessToken } from '@/api/tokenStore';
 
 interface SessionContextProps {
   operator: Operator;
@@ -39,9 +40,11 @@ export const SessionProvider = ({ children }: { children: ReactNode }) => {
       localStorage.setItem('surname', operator.surname || '');
       localStorage.setItem('email', operator.email || '');
       localStorage.setItem('picture', operator.picture || '/profile.png');
+      setAccessToken(operator.auth_token || '');
       setOperatorState(operator);
     } else {
       ['operator_id','session_id','auth_token','name','surname','email','picture'].forEach(k => localStorage.removeItem(k));
+      setAccessToken('');
       setOperatorState({
         operator_id: -1, session_id: '', auth_token: '', name: '', surname: '', email: '', picture: ''
       });

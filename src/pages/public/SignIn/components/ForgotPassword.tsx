@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Box, Button, CircularProgress, Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle, FormHelperText, Grow, IconButton, OutlinedInput, useMediaQuery, useTheme } from '@mui/material';
 import { CloseRounded, MedicalServicesRounded } from '@mui/icons-material';
 
@@ -12,6 +13,7 @@ interface ForgotPasswordProps {
 }
 
 export default function ForgotPassword({ open, onSubmit, onClose }: ForgotPasswordProps) {
+  const { t } = useTranslation();
   const { post } = useApiWrapper();
   const { showSnackbar } = useCustomSnackbar();
 
@@ -45,17 +47,17 @@ export default function ForgotPassword({ open, onSubmit, onClose }: ForgotPasswo
       // Validazione email
       const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
       if (!email.trim()) {
-        errs.email = 'Email is required';
+        errs.email = t('forgotPassword.emailRequired');
       } else if (!emailRegex.test(email.trim())) {
-        errs.email = 'Please enter a valid email address';
+        errs.email = t('forgotPassword.emailInvalid');
       }
     } else {
       // Validazione token
       const tokenRegex = /^[a-zA-Z0-9]{10}$/;
       if (!token.trim()) {
-        errs.token = 'Token is required';
+        errs.token = t('forgotPassword.tokenRequired');
       } else if (!tokenRegex.test(token.trim())) {
-        errs.token = 'Token must be exactly 10 alphanumeric characters';
+        errs.token = t('forgotPassword.tokenFormat');
       }
 
       // Validazione password
@@ -63,18 +65,18 @@ export default function ForgotPassword({ open, onSubmit, onClose }: ForgotPasswo
       const hasNumberOrSpecial = /[0-9_?!@#$%^&]/.test(password);
 
       if (!password.trim()) {
-        errs.password = 'Password is required';
+        errs.password = t('forgotPassword.passwordRequired');
       } else if (!passwordRegex.test(password.trim())) {
-        errs.password = 'Password can only contain letters, numbers and special characters: _?!@#$%^&';
+        errs.password = t('forgotPassword.passwordCharset');
       } else if (!hasNumberOrSpecial) {
-        errs.password = 'Password must contain at least one number or special character';
+        errs.password = t('forgotPassword.passwordStrength');
       }
 
       // Validazione conferma password
       if (!confirmPassword.trim()) {
-        errs.confirmPassword = 'Password confirmation is required';
+        errs.confirmPassword = t('forgotPassword.confirmRequired');
       } else if (password !== confirmPassword) {
-        errs.confirmPassword = 'Passwords do not match';
+        errs.confirmPassword = t('forgotPassword.passwordsMismatch');
       }
     }
 
@@ -95,18 +97,18 @@ export default function ForgotPassword({ open, onSubmit, onClose }: ForgotPasswo
         });
         if (response.statusCode == 200) {
           // Passa al secondo step
-          showSnackbar('Recovery email sent successfully', 'success');
+          showSnackbar(t('forgotPassword.emailSent'), 'success');
           setStep('recovery');
           setErrors({}); // Reset errori quando si passa al secondo step
         } else {
           // Mostra un messaggio di errore
           console.error(response.data.message);
-          showSnackbar(response.data.message || 'An error occurred', 'error');
+          showSnackbar(response.data.message || t('common.texts.error'), 'error');
         }
       } catch (error: any) {
         // Gestione degli errori
-        console.error(error.response?.data?.message || 'An error occurred');
-        showSnackbar(error.response?.data?.message || 'An error occurred', 'error');
+        console.error(error.response?.data?.message || t('common.texts.error'));
+        showSnackbar(error.response?.data?.message || t('common.texts.error'), 'error');
       } finally {
         setIsLoading(false);
       }
@@ -144,7 +146,7 @@ export default function ForgotPassword({ open, onSubmit, onClose }: ForgotPasswo
       >
         <Box display="flex" alignItems="center">
           <MedicalServicesRounded sx={{ mr: 1 }} />
-          Recover your account
+          {t('forgotPassword.title')}
         </Box>
         <IconButton
           size="small"
@@ -161,8 +163,7 @@ export default function ForgotPassword({ open, onSubmit, onClose }: ForgotPasswo
         {step === 'email' ? (
           <>
             <DialogContentText>
-              Enter your account&apos;s email address, and we&apos;ll send you a token to
-              reset your password.
+              {t('forgotPassword.emailIntro')}
             </DialogContentText>
             <Box>
               <OutlinedInput
@@ -171,7 +172,7 @@ export default function ForgotPassword({ open, onSubmit, onClose }: ForgotPasswo
                 margin="dense"
                 id="email"
                 name="email"
-                placeholder="Email address"
+                placeholder={t('forgotPassword.emailPlaceholder')}
                 type="email"
                 fullWidth
                 value={email}
@@ -188,14 +189,14 @@ export default function ForgotPassword({ open, onSubmit, onClose }: ForgotPasswo
         ) : (
           <>
             <DialogContentText>
-              Enter the token you received via email and your new password.
+              {t('forgotPassword.recoveryIntro')}
             </DialogContentText>
             <OutlinedInput
               disabled
               margin="dense"
               id="email-disabled"
               name="email"
-              placeholder="Email address"
+              placeholder={t('forgotPassword.emailPlaceholder')}
               type="email"
               fullWidth
               value={email}
@@ -208,7 +209,7 @@ export default function ForgotPassword({ open, onSubmit, onClose }: ForgotPasswo
                 margin="dense"
                 id="token"
                 name="token"
-                placeholder="Recovery token"
+                placeholder={t('forgotPassword.tokenPlaceholder')}
                 type="text"
                 fullWidth
                 value={token}
@@ -227,7 +228,7 @@ export default function ForgotPassword({ open, onSubmit, onClose }: ForgotPasswo
                 margin="dense"
                 id="password"
                 name="password"
-                placeholder="New password"
+                placeholder={t('forgotPassword.newPasswordPlaceholder')}
                 type="password"
                 fullWidth
                 value={password}
@@ -246,7 +247,7 @@ export default function ForgotPassword({ open, onSubmit, onClose }: ForgotPasswo
                 margin="dense"
                 id="confirm-password"
                 name="confirmPassword"
-                placeholder="Confirm new password"
+                placeholder={t('forgotPassword.confirmPasswordPlaceholder')}
                 type="password"
                 fullWidth
                 value={confirmPassword}
@@ -268,7 +269,7 @@ export default function ForgotPassword({ open, onSubmit, onClose }: ForgotPasswo
           fullWidth={fullScreen}
           disabled={isLoading}
         >
-          Cancel
+          {t('common.buttons.cancel')}
         </Button>
         <Button
           variant="contained"
@@ -277,7 +278,7 @@ export default function ForgotPassword({ open, onSubmit, onClose }: ForgotPasswo
           disabled={isLoading}
           startIcon={isLoading ? <CircularProgress size={16} color="inherit" /> : undefined}
         >
-          {isLoading ? 'Loading...' : (step === 'email' ? 'Continue' : 'Recover')}
+          {isLoading ? t('forgotPassword.loading') : (step === 'email' ? t('common.buttons.continue') : t('forgotPassword.recover'))}
         </Button>
       </DialogActions>
     </Dialog>

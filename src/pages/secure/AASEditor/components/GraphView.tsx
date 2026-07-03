@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next';
 import { SubmodelTemplate } from '@/context/AASContext';
 
 interface GraphViewProps {
@@ -6,6 +7,7 @@ interface GraphViewProps {
 }
 
 export default function GraphView({ aasId, sms }: GraphViewProps) {
+  const { t } = useTranslation();
   const W = 900;
   const maxEl = sms.reduce((a, s) => Math.max(a, (s.elements || []).length), 0);
   const H = Math.max(500, 120 + sms.length * 60 + maxEl * 38);
@@ -66,7 +68,7 @@ export default function GraphView({ aasId, sms }: GraphViewProps) {
 
       {!sms.length && (
         <text x={cx} y={cy + 80} textAnchor="middle" fill="#3d4a5c" fontSize="12" fontFamily="sans-serif">
-          Nessun submodel
+          {t('editor.graphNoSubmodels')}
         </text>
       )}
     </svg>

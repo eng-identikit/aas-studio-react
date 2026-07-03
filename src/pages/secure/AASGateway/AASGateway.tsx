@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import {
   Box,
   Button,
@@ -45,6 +46,7 @@ function submodelDescription(sm: RemoteSubmodel): string {
 }
 
 export default function AASGateway() {
+  const { t } = useTranslation();
   const { importAas } = useAASContext();
   const { listShells, listSubmodels, pull } = useAASRemote();
   const { setHandlers } = useDialogContext();
@@ -72,12 +74,12 @@ export default function AASGateway() {
         listShells(c.baseUrl, c.auth),
         listSubmodels(c.baseUrl, c.auth),
       ]);
-      if (shellsRes.status !== 'Success') throw new Error(shellsRes.message || 'Impossibile elencare le shells');
-      if (subsRes.status !== 'Success') throw new Error(subsRes.message || 'Impossibile elencare i submodels');
+      if (shellsRes.status !== 'Success') throw new Error(shellsRes.message || t('gateway.errListShells'));
+      if (subsRes.status !== 'Success') throw new Error(subsRes.message || t('gateway.errListSubmodels'));
       setShells(shellsRes.data?.shells ?? []);
       setSubmodels(subsRes.data?.submodels ?? []);
     } catch (err: any) {
-      setError(err?.message || 'Errore durante la lettura del server');
+      setError(err?.message || t('gateway.errRead'));
       setShells([]);
       setSubmodels([]);
     } finally {
@@ -103,7 +105,7 @@ export default function AASGateway() {
     try {
       const res = await pull(conn.baseUrl, conn.auth, shellId);
       if (res.status !== 'Success' || !res.data?.shell) {
-        throw new Error(res.message || 'Pull fallito');
+        throw new Error(res.message || t('gateway.errPull'));
       }
       const model = mapEnvironmentToModel(
         { shell: res.data.shell, submodels: res.data.submodels ?? [] },
@@ -112,12 +114,13 @@ export default function AASGateway() {
       importAas(model);
       const failed = res.data.failed?.length ?? 0;
       showSnackbar(
-        `Importato "${model.idShort}" nell'editor — ${model.submodels.length} submodel${failed ? `, ${failed} non risolti` : ''}`,
+        t('gateway.imported', { name: model.idShort, count: model.submodels.length })
+          + (failed ? t('gateway.importedFailed', { count: failed }) : ''),
         failed ? 'warning' : 'success',
       );
       navigate('/editor');
     } catch (err: any) {
-      showSnackbar(err?.message || "Errore durante l'import", 'error');
+      showSnackbar(err?.message || t('gateway.errImport'), 'error');
     } finally {
       setImporting(null);
     }
@@ -149,10 +152,9 @@ export default function AASGateway() {
       <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', p: 4 }}>
         <Stack alignItems="center" spacing={1.5} sx={{ maxWidth: 440, textAlign: 'center' }}>
           <LanRounded sx={{ fontSize: 48, color: 'text.secondary' }} />
-          <Typography variant="h6" fontWeight={600}>Nessun AAS server collegato</Typography>
+          <Typography variant="h6" fontWeight={600}>{t('gateway.notConnectedTitle')}</Typography>
           <Typography variant="body2" color="text.secondary">
-            Collegati a un server AAS (IDTA 01002-3-0 Part 2) per esplorare shells e submodels
-            e importarli nell'editor.
+            {t('gateway.notConnectedBody')}
           </Typography>
           <Button
             variant="contained"
@@ -160,7 +162,7 @@ export default function AASGateway() {
             onClick={() => setShowConnectDialog(true)}
             sx={{ mt: 1 }}
           >
-            Connetti a un AAS server
+            {t('gateway.connectBtn')}
           </Button>
         </Stack>
         <GatewayConnectDialog
@@ -189,7 +191,7 @@ export default function AASGateway() {
             {hostLabel}
           </Typography>
 
-          <Chip size="small" variant="outlined" color="success" label="Connesso" />
+          <Chip size="small" variant="outlined" color="success" label={t('gateway.connected')} />
 
           <Typography
             variant="caption"
@@ -224,7 +226,7 @@ export default function AASGateway() {
               onClick={() => refresh(conn)}
               disabled={loading}
             >
-              Aggiorna
+              {t('common.buttons.refresh')}
             </Button>
             <Button
               variant="outlined"
@@ -233,7 +235,7 @@ export default function AASGateway() {
               startIcon={<LinkOffRounded />}
               onClick={handleDisconnect}
             >
-              Disconnetti
+              {t('gateway.disconnect')}
             </Button>
           </Stack>
         </Stack>
@@ -248,7 +250,7 @@ export default function AASGateway() {
             <WarningAmberRounded sx={{ fontSize: 36, color: 'error.main' }} />
             <Typography variant="body2" color="error.main">{error}</Typography>
             <Button size="small" variant="outlined" startIcon={<RefreshRounded />} onClick={() => refresh(conn)}>
-              Riprova
+              {t('common.buttons.retry')}
             </Button>
           </Stack>
         ) : (
@@ -278,7 +280,7 @@ export default function AASGateway() {
                     onClick={() => handleImport(shell.id)}
                     disabled={importing !== null}
                   >
-                    {importing === shell.id ? 'Importazione…' : "Importa nell'editor"}
+                    {importing === shell.id ? t('gateway.importing') : t('gateway.importBtn')}
                   </Button>
                 </Stack>
 
@@ -286,7 +288,7 @@ export default function AASGateway() {
 
                 {smList.length === 0 && unresolved.length === 0 ? (
                   <Typography variant="caption" color="text.disabled">
-                    Nessun submodel referenziato da questa shell.
+                    {t('gateway.noSubmodelRefs')}
                   </Typography>
                 ) : (
                   <Stack spacing={0.25}>
@@ -305,7 +307,7 @@ export default function AASGateway() {
                         <Chip
                           size="small"
                           variant="outlined"
-                          label={`${sm.submodelElements?.length ?? 0} elementi`}
+                          label={t('editor.elementsCount', { count: sm.submodelElements?.length ?? 0 })}
                           sx={{ fontFamily: 'monospace', fontSize: 10, flexShrink: 0 }}
                         />
                       </Stack>
@@ -316,7 +318,7 @@ export default function AASGateway() {
                         <Typography variant="caption" fontFamily="monospace" color="text.disabled" noWrap>
                           {id}
                         </Typography>
-                        <Chip size="small" variant="outlined" color="warning" label="non risolto" sx={{ fontSize: 10 }} />
+                        <Chip size="small" variant="outlined" color="warning" label={t('gateway.unresolved')} sx={{ fontSize: 10 }} />
                       </Stack>
                     ))}
                   </Stack>
@@ -328,7 +330,7 @@ export default function AASGateway() {
               <Paper variant="outlined" sx={{ p: 2 }}>
                 <Stack direction="row" alignItems="center" spacing={1.5}>
                   <SchemaRounded sx={{ fontSize: 20, color: 'text.secondary' }} />
-                  <Typography fontWeight={700}>Submodels non referenziati</Typography>
+                  <Typography fontWeight={700}>{t('gateway.orphans')}</Typography>
                   <Chip size="small" variant="outlined" label={orphans.length} sx={{ fontFamily: 'monospace', fontSize: 10 }} />
                 </Stack>
                 <Divider sx={{ my: 1.5 }} />
@@ -343,7 +345,7 @@ export default function AASGateway() {
                       <Chip
                         size="small"
                         variant="outlined"
-                        label={`${sm.submodelElements?.length ?? 0} elementi`}
+                        label={t('editor.elementsCount', { count: sm.submodelElements?.length ?? 0 })}
                         sx={{ fontFamily: 'monospace', fontSize: 10, flexShrink: 0 }}
                       />
                     </Stack>
@@ -356,7 +358,7 @@ export default function AASGateway() {
               <Stack alignItems="center" spacing={1} mt={6}>
                 <Inventory2Rounded sx={{ fontSize: 36, color: 'text.disabled' }} />
                 <Typography variant="body2" color="text.secondary">
-                  Il server non espone né shells né submodels.
+                  {t('gateway.emptyServer')}
                 </Typography>
               </Stack>
             )}

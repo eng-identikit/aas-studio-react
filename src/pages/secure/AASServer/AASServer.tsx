@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useColorScheme } from '@mui/material/styles';
 import {
   Box,
@@ -715,6 +716,7 @@ function generateDockerCompose(aasIdShort: string, version: string): string {
 type CodeTab = 'main' | 'models' | 'docker' | 'requirements' | 'compose';
 
 export default function AASServer() {
+  const { t } = useTranslation();
   const { selectedModelId, setSelectedModelId, availableModels, currentModel, currentVersion } = useAASContext();
   const submodels = currentModel?.submodels ?? [];
   const aasIdShort = currentModel?.idShort ?? '';
@@ -818,9 +820,9 @@ export default function AASServer() {
       setShowLogs(true);
     } else if (res.statusCode === 503) {
       setRunnerReachable(false);
-      setRunnerError(res.message || 'aas-server-runner non raggiungibile');
+      setRunnerError(res.message || t('server.runnerUnreachable'));
     } else {
-      setRunnerError(res.message || 'Errore durante l\'avvio del server');
+      setRunnerError(res.message || t('server.errStart'));
     }
     setRunnerBusy(null);
   }, [currentModel, currentVersion]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -832,7 +834,7 @@ export default function AASServer() {
     if (res.status === 'Success' && res.data) {
       setRunnerStatus(res.data);
     } else {
-      setRunnerError(res.message || 'Errore durante l\'arresto del server');
+      setRunnerError(res.message || t('server.errStop'));
     }
     setRunnerBusy(null);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -910,10 +912,9 @@ export default function AASServer() {
     return (
       <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', p: 4 }}>
         <Stack spacing={1} alignItems="center">
-          <Typography variant="subtitle1" fontWeight={700}>No AAS model available</Typography>
+          <Typography variant="subtitle1" fontWeight={700}>{t('server.noModelTitle')}</Typography>
           <Typography variant="body2" color="text.secondary" textAlign="center">
-            Create or import a model first. If you expected existing models, your session may have
-            expired — try signing in again.
+            {t('server.noModelBody')}
           </Typography>
         </Stack>
       </Box>
@@ -950,7 +951,7 @@ export default function AASServer() {
             <DnsRounded sx={{ fontSize: 20 }} />
           </Box>
           <Box sx={{ minWidth: 0 }}>
-            <Typography variant="subtitle1" fontWeight={700} lineHeight={1.2}>Server Generator</Typography>
+            <Typography variant="subtitle1" fontWeight={700} lineHeight={1.2}>{t('server.title')}</Typography>
             <Typography variant="caption" color="text.disabled" fontFamily="monospace" display="block">
               FastAPI · IDTA-01002-3-0
             </Typography>
@@ -958,7 +959,7 @@ export default function AASServer() {
         </Stack>
 
         <Box>
-          <Typography variant="overline" color="text.disabled" display="block" mb={0.75}>AAS Model</Typography>
+          <Typography variant="overline" color="text.disabled" display="block" mb={0.75}>{t('server.aasModel')}</Typography>
           <FormControl size="small" fullWidth>
             <Select
               value={selectedModelId}
@@ -1025,7 +1026,7 @@ export default function AASServer() {
                 },
               }}
             >
-              {runnerBusy === 'start' ? 'Avvio…' : isRunning ? 'Redeploy' : 'Run Server'}
+              {runnerBusy === 'start' ? t('server.starting') : isRunning ? t('server.redeploy') : t('server.runServer')}
             </Button>
             {isRunning && (
               <Button
@@ -1055,7 +1056,7 @@ export default function AASServer() {
                   },
                 }}
               >
-                {runnerBusy === 'stop' ? 'Arresto…' : 'Stop'}
+                {runnerBusy === 'stop' ? t('server.stopping') : t('server.stop')}
               </Button>
             )}
           </Stack>
@@ -1100,8 +1101,8 @@ export default function AASServer() {
             </Box>
 
             {runnerReachable === false ? (
-              <Typography variant="caption" color="text.secondary" sx={{ flex: 1, minWidth: 0 }}>
-                avvia <Box component="span" fontFamily="monospace">python -m runner</Box> (:6790)
+              <Typography variant="caption" color="text.secondary" fontFamily="monospace" sx={{ flex: 1, minWidth: 0 }}>
+                {t('server.runnerHint')}
               </Typography>
             ) : isRunning ? (
               <Typography variant="caption" fontFamily="monospace" color="success.main" noWrap sx={{ flex: 1, minWidth: 0 }}>
@@ -1109,7 +1110,7 @@ export default function AASServer() {
               </Typography>
             ) : (
               <Typography variant="caption" fontFamily="monospace" color="text.secondary" noWrap sx={{ flex: 1, minWidth: 0 }}>
-                porta :6789
+                {t('server.port')}
               </Typography>
             )}
 
@@ -1125,7 +1126,7 @@ export default function AASServer() {
                   rel="noopener noreferrer"
                   sx={{ minWidth: 0, px: 0.75 }}
                 >
-                  Docs
+                  {t('server.docs')}
                 </Button>
                 <Button
                   size="small"
@@ -1135,7 +1136,7 @@ export default function AASServer() {
                   onClick={() => setShowLogs(v => !v)}
                   sx={{ minWidth: 0, px: 0.75 }}
                 >
-                  Log
+                  {t('server.logs')}
                 </Button>
               </Stack>
             )}
@@ -1151,7 +1152,7 @@ export default function AASServer() {
             <Box sx={{ mt: 1, p: 1.25, borderRadius: 1.5, bgcolor: TERMINAL_BG, border: `1px solid ${TERMINAL_BORDER}`, maxHeight: 280, overflowY: 'auto' }}>
               {runLogs.length === 0 ? (
                 <Typography variant="caption" color="text.disabled" fontFamily="monospace" fontSize={10}>
-                  — nessun log —
+                  {t('server.noLogs')}
                 </Typography>
               ) : (
                 runLogs.map((line, i) => {
@@ -1190,7 +1191,7 @@ export default function AASServer() {
             '&:hover': { transform: 'translateY(-1px)', boxShadow: '0 8px 20px rgba(99,102,241,.35)' },
           }}
         >
-          {generating ? 'Generating…' : generated ? 'Regenerate' : 'Generate Server'}
+          {generating ? t('server.generating') : generated ? t('server.regenerate') : t('server.generate')}
         </Button>
 
         {(generating || generated) && genProgress.length > 0 && (
@@ -1224,7 +1225,7 @@ export default function AASServer() {
         {generated && (
           <Paper variant="outlined" sx={{ p: 1.75, borderRadius: 2, borderColor: 'success.main', bgcolor: 'rgba(16,185,129,.05)' }}>
             <Typography variant="caption" fontWeight={600} color="success.main" display="block" mb={0.75}>
-              Server config
+              {t('server.serverConfig')}
             </Typography>
             <Typography variant="caption" fontFamily="monospace" color="text.secondary" sx={{ lineHeight: 1.9 }} component="div">
               Host: 0.0.0.0:8000<br />
@@ -1241,7 +1242,7 @@ export default function AASServer() {
         onMouseDown={handlePanelResize}
         role="separator"
         aria-orientation="vertical"
-        aria-label="Ridimensiona pannello"
+        aria-label={t('server.resizePanel')}
         sx={{
           width: 6,
           ml: '-3px',
@@ -1301,7 +1302,7 @@ export default function AASServer() {
                 onClick={handleCopy}
                 sx={{ color: copied ? 'success.main' : ct.tab, '&:hover': { color: ct.tabActive } }}
               >
-                {copied ? 'Copied!' : 'Copy'}
+                {copied ? t('server.copied') : t('server.copy')}
               </Button>
               <Button
                 size="small"
@@ -1313,7 +1314,7 @@ export default function AASServer() {
                   '&:hover': { borderColor: ct.tab, bgcolor: ct.buttonHoverBg },
                 }}
               >
-                Download
+                {t('server.download')}
               </Button>
             </Stack>
           )}
@@ -1349,10 +1350,10 @@ export default function AASServer() {
                 <BoltRounded sx={{ fontSize: 38, color: isDarkMode ? '#8b95f6' : '#6366f1' }} />
               </Box>
               <Typography variant="body2" fontWeight={600} sx={{ color: ct.emptyTitle }}>
-                {generating ? 'Generazione in corso…' : 'Clicca "Generate Server" per iniziare'}
+                {generating ? t('server.emptyGenerating') : t('server.emptyPrompt')}
               </Typography>
               <Typography variant="caption" fontFamily="monospace" sx={{ color: ct.emptyCaption }}>
-                {submodels.length} submodel{submodels.length !== 1 ? 's' : ''} · FastAPI · IDTA compliant
+                {t('server.submodelSummary', { count: submodels.length })}
               </Typography>
             </Stack>
           ) : (

@@ -1,4 +1,6 @@
 import { useState, useRef, type ChangeEvent, type DragEvent } from 'react';
+import { useTranslation } from 'react-i18next';
+import i18next from 'i18next';
 import {
   Box,
   Button,
@@ -33,7 +35,7 @@ interface AddEntityDialogProps {
 function parseAasJson(raw: unknown): AASModel {
   const data = raw as any;
   const shell = data.assetAdministrationShells?.[0];
-  if (!shell) throw new Error('Nessun assetAdministrationShell trovato nel JSON');
+  if (!shell) throw new Error(i18next.t('addEntity.errNoShell'));
 
   return {
     id: shell.id || `imported-${Date.now()}`,
@@ -55,6 +57,7 @@ function parseAasJson(raw: unknown): AASModel {
 }
 
 export default function AddEntityDialog({ open, onClose, onAdd, onImport }: AddEntityDialogProps) {
+  const { t } = useTranslation();
   const [mode, setMode] = useState<Mode>('create');
 
   // create form state
@@ -92,7 +95,7 @@ export default function AddEntityDialog({ open, onClose, onAdd, onImport }: AddE
 
   const processFile = (file: File) => {
     if (!file.name.endsWith('.json')) {
-      setImportError('Il file deve essere in formato JSON');
+      setImportError(t('addEntity.errNotJson'));
       return;
     }
     const reader = new FileReader();
@@ -103,7 +106,7 @@ export default function AddEntityDialog({ open, onClose, onAdd, onImport }: AddE
         setImportPreview(model);
         setImportError(null);
       } catch (err) {
-        setImportError(err instanceof Error ? err.message : 'Errore nel parsing del JSON');
+        setImportError(err instanceof Error ? err.message : t('addEntity.errParse'));
         setImportPreview(null);
       }
     };
@@ -141,9 +144,9 @@ export default function AddEntityDialog({ open, onClose, onAdd, onImport }: AddE
       <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
         <AddRounded />
         <Box>
-          <Typography variant="subtitle1" fontWeight={700} lineHeight={1.2}>Nuovo modello AAS</Typography>
+          <Typography variant="subtitle1" fontWeight={700} lineHeight={1.2}>{t('addEntity.title')}</Typography>
           <Typography variant="caption" color="text.disabled" fontFamily="monospace">
-            {mode === 'create' ? 'Crea un nuovo modello AAS' : 'Importa da file JSON'}
+            {mode === 'create' ? t('addEntity.subtitleCreate') : t('addEntity.subtitleImport')}
           </Typography>
         </Box>
         <Box flexGrow={1} />
@@ -162,11 +165,11 @@ export default function AddEntityDialog({ open, onClose, onAdd, onImport }: AddE
         >
           <ToggleButton value="create" sx={{ fontFamily: 'monospace', fontSize: 11 }}>
             <AddRounded fontSize="small" sx={{ mr: 0.5 }} />
-            Crea da zero
+            {t('addEntity.tabCreate')}
           </ToggleButton>
           <ToggleButton value="import" sx={{ fontFamily: 'monospace', fontSize: 11 }}>
             <FileUploadRounded fontSize="small" sx={{ mr: 0.5 }} />
-            Importa JSON
+            {t('addEntity.tabImport')}
           </ToggleButton>
         </ToggleButtonGroup>
       </Box>
@@ -246,10 +249,10 @@ export default function AddEntityDialog({ open, onClose, onAdd, onImport }: AddE
             >
               <UploadFileRounded sx={{ fontSize: 40, color: 'text.disabled', mb: 1 }} />
               <Typography variant="body2" color="text.secondary">
-                Trascina un file JSON qui oppure <strong>clicca per selezionare</strong>
+                {t('addEntity.dropText')}
               </Typography>
               <Typography variant="caption" color="text.disabled" fontFamily="monospace">
-                Formato: AAS Environment JSON (IDTA)
+                {t('addEntity.formatCaption')}
               </Typography>
               <input
                 ref={fileInputRef}
@@ -269,13 +272,13 @@ export default function AddEntityDialog({ open, onClose, onAdd, onImport }: AddE
             {importPreview && (
               <Alert severity="success" sx={{ fontSize: 12 }}>
                 <Typography variant="caption" fontWeight={700} display="block">
-                  Entità rilevata: {importPreview.idShort}
+                  {t('addEntity.detected', { name: importPreview.idShort })}
                 </Typography>
                 <Typography variant="caption" color="text.secondary" fontFamily="monospace" display="block">
                   assetId: {importPreview.assetId || '—'}
                 </Typography>
                 <Typography variant="caption" color="text.secondary" display="block">
-                  Submodel trovati: {importPreview.submodels.length}
+                  {t('addEntity.submodelsFound', { count: importPreview.submodels.length })}
                 </Typography>
               </Alert>
             )}
@@ -290,7 +293,7 @@ export default function AddEntityDialog({ open, onClose, onAdd, onImport }: AddE
         p={1.5}
         sx={{ borderTop: 1, borderColor: 'divider' }}
       >
-        <Button onClick={handleClose}>Annulla</Button>
+        <Button onClick={handleClose}>{t('common.buttons.cancel')}</Button>
         {mode === 'create' ? (
           <Button
             variant="contained"
@@ -298,7 +301,7 @@ export default function AddEntityDialog({ open, onClose, onAdd, onImport }: AddE
             startIcon={<AddRounded />}
             onClick={handleAdd}
           >
-            Crea
+            {t('common.buttons.create')}
           </Button>
         ) : (
           <Button
@@ -307,7 +310,7 @@ export default function AddEntityDialog({ open, onClose, onAdd, onImport }: AddE
             startIcon={<FileUploadRounded />}
             onClick={handleImport}
           >
-            Importa
+            {t('common.buttons.import')}
           </Button>
         )}
       </Stack>

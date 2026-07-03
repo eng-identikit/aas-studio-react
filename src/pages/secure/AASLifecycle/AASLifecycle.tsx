@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   Avatar,
   Box,
@@ -15,18 +16,25 @@ import {
 } from '@mui/material';
 import {
   AddRounded,
+  CompareArrowsRounded,
   EditRounded,
   ExpandMoreRounded,
   Inventory2Rounded,
   RemoveRounded,
   ScheduleRounded,
 } from '@mui/icons-material';
+import { IconButton, Tooltip } from '@mui/material';
 
 import { useAASContext } from '@/context/AASContext';
 import { useDialogContext } from '@/context/DialogContext';
 import { useAASVersioning } from '@/hooks/useAASVersioning';
 import ConfirmExportDialog from '@/pages/secure/AASEditor/dialogs/ConfirmExportDialog';
+import CommitDiffDialog from './components/CommitDiffDialog';
 import type { VersionStatus, ChangeType, AASVersion } from '@/context/AASContext';
+
+// A timeline entry: local AASVersion plus the server commit id (when the
+// version comes from the DB log) so it can be diffed against the current state.
+type TimelineVersion = AASVersion & { commitId?: number };
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -65,6 +73,8 @@ const changeIconEl = {
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export default function AASLifecycle() {
+  const { t, i18n } = useTranslation();
+  const locale = i18n.language === 'it' ? 'it-IT' : 'en-US';
   const { selectedModelId, setSelectedModelId, availableModels, loading } = useAASContext();
   const { setHandlers } = useDialogContext();
   const { getLog } = useAASVersioning();
@@ -72,7 +82,7 @@ export default function AASLifecycle() {
   const currentModel = availableModels.find(m => m.id === selectedModelId) || availableModels[0];
 
   // Full version history from DB (if document is persisted)
-  const [dbVersions, setDbVersions] = useState<AASVersion[]>([]);
+  const [dbVersions, setDbVersions] = useState<TimelineVersion[]>([]);
   const [logLoading, setLogLoading] = useState(false);
 
   useEffect(() => {
@@ -85,6 +95,7 @@ export default function AASLifecycle() {
       .then(res => {
         const commits = res.data?.commits ?? [];
         setDbVersions(commits.map((c: any) => ({
+          commitId: c.commit_id,
           version: c.version,
           revision: c.revision,
           date: c.createdAt,
@@ -106,13 +117,14 @@ export default function AASLifecycle() {
   }, [currentModel?.documentId, currentModel?.versions?.[0]?.date]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Use DB history when available, fall back to local versions
-  const versions = useMemo(
+  const versions = useMemo<TimelineVersion[]>(
     () => (dbVersions.length > 0 ? dbVersions : currentModel?.versions ?? []),
     [dbVersions, currentModel]
   );
 
   const [expanded, setExpanded] = useState<Set<number>>(new Set([0]));
   const [showExportDialog, setShowExportDialog] = useState(false);
+  const [diffTarget, setDiffTarget] = useState<{ commitId: number; label: string } | null>(null);
 
   const toggleVersion = (i: number) => {
     setExpanded(prev => {
@@ -128,7 +140,7 @@ export default function AASLifecycle() {
     if (!currentModel) return;
     const lines: string[] = [`# Changelog — ${currentModel.idShort}`, `assetId: ${currentModel.assetId}`, ''];
     versions.forEach(v => {
-      lines.push(`## v${v.version} rev ${v.revision} (${v.status}) — ${new Date(v.date).toLocaleDateString('it-IT')}`);
+      lines.push(`## v${v.version} rev ${v.revision} (${v.status}) — ${new Date(v.date).toLocaleDateString(locale)}`);
       lines.push(`*${v.author}*`);
       lines.push('');
       lines.push(v.changes);
@@ -145,7 +157,7 @@ export default function AASLifecycle() {
     a.download = `changelog-${currentModel.idShort}.md`;
     a.click();
     URL.revokeObjectURL(url);
-  }, [currentModel]);
+  }, [currentModel, versions, locale]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Register sidebar handler — opens the confirmation dialog rather than
   // exporting straight away.
@@ -167,17 +179,17 @@ export default function AASLifecycle() {
             <>
               <CircularProgress size={28} />
               <Typography variant="body2" color="text.secondary">
-                Caricamento modelli…
+                {t('lifecycle.loadingModels')}
               </Typography>
             </>
           ) : (
             <>
               <Inventory2Rounded sx={{ fontSize: 40, color: 'text.disabled' }} />
               <Typography variant="body2" color="text.disabled">
-                Nessun modello disponibile
+                {t('lifecycle.noModels')}
               </Typography>
               <Typography variant="caption" color="text.disabled" textAlign="center">
-                Crea o importa un AAS nell'editor per vederne la cronologia.
+                {t('lifecycle.noModelsHint')}
               </Typography>
             </>
           )}
@@ -252,10 +264,10 @@ export default function AASLifecycle() {
           {/* ── Stats ── */}
           <Stack direction="row" spacing={1.5} flexWrap="wrap" mb={3.5}>
             {([
-              ['Versioni', versions.length, 'primary.main'],
-              ['Aggiunte', allChanges.filter(d => d.type === 'added').length, 'success.main'],
-              ['Modifiche', allChanges.filter(d => d.type === 'modified').length, 'warning.main'],
-              ['Rimozioni', allChanges.filter(d => d.type === 'removed').length, 'error.main'],
+              [t('lifecycle.versions'), versions.length, 'primary.main'],
+              [t('lifecycle.added'), allChanges.filter(d => d.type === 'added').length, 'success.main'],
+              [t('lifecycle.modified'), allChanges.filter(d => d.type === 'modified').length, 'warning.main'],
+              [t('lifecycle.removed'), allChanges.filter(d => d.type === 'removed').length, 'error.main'],
             ] as [string, number, string][]).map(([label, value, color]) => (
               <Paper key={label} variant="outlined" sx={{ px: 2.25, py: 1.5, minWidth: 100 }}>
                 <Typography variant="h4" fontWeight={800} fontFamily="monospace" sx={{ color }}>
@@ -275,7 +287,7 @@ export default function AASLifecycle() {
 
             {logLoading && (
               <Typography variant="caption" color="text.disabled" fontFamily="monospace" display="block" mb={2}>
-                Caricamento storico dal server…
+                {t('lifecycle.loadingHistory')}
               </Typography>
             )}
             {versions.map((v, idx) => {
@@ -328,7 +340,7 @@ export default function AASLifecycle() {
                       <Stack direction="row" alignItems="center" spacing={0.75}>
                         <ScheduleRounded sx={{ fontSize: 12, color: 'text.disabled' }} />
                         <Typography variant="caption" color="text.secondary">
-                          {new Date(v.date).toLocaleDateString('it-IT', {
+                          {new Date(v.date).toLocaleDateString(locale, {
                             day: '2-digit', month: 'short', year: 'numeric',
                             hour: '2-digit', minute: '2-digit',
                           })}
@@ -337,6 +349,20 @@ export default function AASLifecycle() {
                       <Typography variant="caption" color="text.secondary" fontFamily="monospace">
                         {v.author}
                       </Typography>
+                      {v.commitId != null && currentModel.documentId != null && (
+                        <Tooltip title={t('lifecycle.diff.compareBtn')} arrow>
+                          <IconButton
+                            size="small"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setDiffTarget({ commitId: v.commitId!, label: `v${v.version} rev ${v.revision}` });
+                            }}
+                            sx={{ color: 'primary.main' }}
+                          >
+                            <CompareArrowsRounded sx={{ fontSize: 16 }} />
+                          </IconButton>
+                        </Tooltip>
+                      )}
                       <ExpandMoreRounded
                         sx={{
                           color: 'text.secondary',
@@ -359,7 +385,7 @@ export default function AASLifecycle() {
                           <Divider />
                           <Box sx={{ px: 2.5, py: 2 }}>
                             <Typography variant="overline" color="text.disabled" display="block" mb={1.25}>
-                              Changelog dettagliato
+                              {t('lifecycle.detailedChangelog')}
                             </Typography>
                             {(v.details || []).map((d, di) => (
                               <Stack
@@ -412,11 +438,25 @@ export default function AASLifecycle() {
         </Box>
       </Box>
 
+      <CommitDiffDialog
+        open={Boolean(diffTarget)}
+        onClose={() => setDiffTarget(null)}
+        documentId={currentModel.documentId ?? null}
+        commitId={diffTarget?.commitId ?? null}
+        commitLabel={diffTarget?.label ?? ''}
+        current={{
+          idShort: currentModel.idShort,
+          assetId: currentModel.assetId,
+          description: currentModel.description,
+          submodels: currentModel.submodels,
+        }}
+      />
+
       <ConfirmExportDialog
         open={showExportDialog}
         fileName={`changelog-${currentModel.idShort}.md`}
-        title="Esporta changelog"
-        message="Vuoi davvero esportare il changelog del modello corrente? Il file Markdown verrà scaricato sul tuo dispositivo."
+        title={t('lifecycle.exportTitle')}
+        message={t('lifecycle.exportMessage')}
         onClose={() => setShowExportDialog(false)}
         onConfirm={() => { exportChangelog(); setShowExportDialog(false); }}
       />

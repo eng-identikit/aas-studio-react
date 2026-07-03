@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   Box,
   Button,
@@ -38,6 +39,7 @@ interface GatewayConnectDialogProps {
 }
 
 export default function GatewayConnectDialog({ open, onClose, onConnected }: GatewayConnectDialogProps) {
+  const { t } = useTranslation();
   const { ping } = useAASRemote();
 
   const [baseUrl, setBaseUrl] = useState('');
@@ -62,13 +64,13 @@ export default function GatewayConnectDialog({ open, onClose, onConnected }: Gat
       const auth = buildAuth();
       const res = await ping(baseUrl.trim(), auth);
       if (res.status !== 'Success' || !res.data?.reachable) {
-        setError(res.message || `Server non raggiungibile${res.data?.statusCode ? ` (HTTP ${res.data.statusCode})` : ''}`);
+        setError(res.message || `${t('gatewayConnect.unreachable')}${res.data?.statusCode ? ` (HTTP ${res.data.statusCode})` : ''}`);
         return;
       }
       onConnected({ baseUrl: baseUrl.trim(), auth, profiles: res.data.profiles ?? [] });
       onClose();
     } catch (err: any) {
-      setError(err?.message || 'Errore di connessione');
+      setError(err?.message || t('gatewayConnect.connError'));
     } finally {
       setPinging(false);
     }
@@ -80,7 +82,7 @@ export default function GatewayConnectDialog({ open, onClose, onConnected }: Gat
         <LanRounded color="primary" />
         <Box>
           <Typography variant="subtitle1" fontWeight={700} lineHeight={1.2}>
-            Connetti a un AAS Server
+            {t('gatewayConnect.title')}
           </Typography>
           <Typography variant="caption" color="text.disabled" fontFamily="monospace">
             IDTA 01002-3-0 Part 2 · repository remoto
@@ -94,7 +96,7 @@ export default function GatewayConnectDialog({ open, onClose, onConnected }: Gat
 
       <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
         <TextField
-          label="Base URL del server"
+          label={t('gatewayConnect.baseUrlLabel')}
           size="small"
           fullWidth
           value={baseUrl}
@@ -105,29 +107,29 @@ export default function GatewayConnectDialog({ open, onClose, onConnected }: Gat
 
         <Stack direction="row" spacing={1.5}>
           <FormControl size="small" sx={{ minWidth: 140 }}>
-            <InputLabel>Autenticazione</InputLabel>
+            <InputLabel>{t('gatewayConnect.authLabel')}</InputLabel>
             <Select
-              label="Autenticazione"
+              label={t('gatewayConnect.authLabel')}
               value={authType}
               onChange={(e) => setAuthType(e.target.value as AuthType)}
             >
-              <MenuItem value="none">Nessuna</MenuItem>
-              <MenuItem value="bearer">Bearer token</MenuItem>
-              <MenuItem value="basic">Basic auth</MenuItem>
+              <MenuItem value="none">{t('gatewayConnect.authNone')}</MenuItem>
+              <MenuItem value="bearer">{t('gatewayConnect.authBearer')}</MenuItem>
+              <MenuItem value="basic">{t('gatewayConnect.authBasic')}</MenuItem>
             </Select>
           </FormControl>
 
           {authType === 'bearer' && (
             <TextField
-              label="Token" size="small" fullWidth type="password"
+              label={t('gatewayConnect.tokenLabel')} size="small" fullWidth type="password"
               value={token} onChange={(e) => setToken(e.target.value)}
             />
           )}
           {authType === 'basic' && (
             <>
-              <TextField label="Username" size="small" fullWidth
+              <TextField label={t('gatewayConnect.usernameLabel')} size="small" fullWidth
                 value={username} onChange={(e) => setUsername(e.target.value)} />
-              <TextField label="Password" size="small" fullWidth type="password"
+              <TextField label={t('gatewayConnect.passwordLabel')} size="small" fullWidth type="password"
                 value={password} onChange={(e) => setPassword(e.target.value)} />
             </>
           )}
@@ -146,7 +148,7 @@ export default function GatewayConnectDialog({ open, onClose, onConnected }: Gat
           disabled={!baseUrl.trim() || pinging}
           startIcon={pinging ? <CircularProgress size={14} color="inherit" /> : <LanRounded />}
         >
-          {pinging ? 'Connessione…' : 'Connetti'}
+          {pinging ? t('gatewayConnect.connecting') : t('gatewayConnect.connect')}
         </Button>
       </DialogContent>
     </Dialog>
