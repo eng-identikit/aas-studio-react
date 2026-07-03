@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, KeyboardEvent, type ReactNode } from 'react';
+import { useState, useCallback, useEffect, memo, KeyboardEvent, type ReactNode } from 'react';
 import {
   Box,
   Button,
@@ -146,7 +146,22 @@ interface ElementNodeProps {
   issues: (idShort: string) => { err: number; warn: number };
 }
 
-function ElementNode({ smId, node, path, depth, expanded, onToggle, selectedKey, onSelect, issues }: ElementNodeProps) {
+// Skip re-render when nothing this row draws has changed. `node` refs survive an
+// edit for untouched subtrees (updateElement/updateChild are path-surgical), the
+// callbacks are stable (useCallback), so the only by-value prop is `path`.
+const elementNodeEqual = (a: ElementNodeProps, b: ElementNodeProps) =>
+  a.smId === b.smId &&
+  a.node === b.node &&
+  a.depth === b.depth &&
+  a.expanded === b.expanded &&
+  a.selectedKey === b.selectedKey &&
+  a.onToggle === b.onToggle &&
+  a.onSelect === b.onSelect &&
+  a.issues === b.issues &&
+  a.path.length === b.path.length &&
+  a.path.every((v, i) => v === b.path[i]);
+
+const ElementNode = memo(function ElementNode({ smId, node, path, depth, expanded, onToggle, selectedKey, onSelect, issues }: ElementNodeProps) {
   const isContainer = isContainerType(node.type);
   const key = `${smId}:${path.join('.')}`;
   const open = expanded.has(key);
@@ -243,7 +258,7 @@ function ElementNode({ smId, node, path, depth, expanded, onToggle, selectedKey,
       )}
     </Box>
   );
-}
+}, elementNodeEqual);
 
 // Labelled field wrapper used throughout the element inspector.
 function InspectorField({ label, children }: { label: string; children: ReactNode }) {
@@ -464,13 +479,18 @@ export default function AASEditor() {
     );
   }
 
-  const toggleElement = (key: string) => {
+  const toggleElement = useCallback((key: string) => {
     setExpandedElements(prev => {
       const next = new Set(prev);
       next.has(key) ? next.delete(key) : next.add(key);
       return next;
     });
-  };
+  }, []);
+
+  // Stable so memoized ElementNode rows skip re-render on unrelated edits.
+  const handleSelect = useCallback((p: number[]) => {
+    setSelectedPath(prev => (prev && prev.join('.') === p.join('.') ? null : p));
+  }, []);
 
   const stats: [string, number][] = [
     ['Submodels', submodels.length],
@@ -493,15 +513,18 @@ export default function AASEditor() {
   };
 
   // Error/warning counts for a node in the active submodel, matched by idShort.
-  const smIssues = (idShort: string) => {
-    if (!activeSm) return { err: 0, warn: 0 };
-    const p = `SM[${submodels.indexOf(activeSm)}]`;
+  // Depends on the submodel index (stable across value edits) + validationResult,
+  // not activeSm/submodels refs — so it stays referentially stable while typing.
+  const smIndex = activeSm ? submodels.indexOf(activeSm) : -1;
+  const smIssues = useCallback((idShort: string) => {
+    if (smIndex < 0) return { err: 0, warn: 0 };
+    const p = `SM[${smIndex}]`;
     const match = (f: { path: string }) => f.path.startsWith(p) && f.path.includes(`→ ${idShort}`);
     return {
       err: validationResult?.errors.filter(match).length ?? 0,
       warn: validationResult?.warnings.filter(match).length ?? 0,
     };
-  };
+  }, [smIndex, validationResult]);
 
   return (
     <>
@@ -1047,7 +1070,7 @@ export default function AASEditor() {
                         expanded={expandedElements}
                         onToggle={toggleElement}
                         selectedKey={selectedPath ? `${activeSm.id}:${selectedPath.join('.')}` : null}
-                        onSelect={(p) => setSelectedPath(prev => prev && prev.join('.') === p.join('.') ? null : p)}
+                        onSelect={handleSelect}
                         issues={smIssues}
                       />
                     ))}
