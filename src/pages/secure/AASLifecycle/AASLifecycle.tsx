@@ -11,6 +11,7 @@ import {
   MenuItem,
   Paper,
   Select,
+  Slide,
   Stack,
   Typography,
 } from '@mui/material';
@@ -29,7 +30,7 @@ import { useAASContext } from '@/context/AASContext';
 import { useDialogContext } from '@/context/DialogContext';
 import { useAASVersioning } from '@/hooks/useAASVersioning';
 import ConfirmExportDialog from '@/pages/secure/AASEditor/dialogs/ConfirmExportDialog';
-import CommitDiffDialog from './components/CommitDiffDialog';
+import CommitDiffPanel from './components/CommitDiffPanel';
 import type { VersionStatus, ChangeType, AASVersion } from '@/context/AASContext';
 
 // A timeline entry: local AASVersion plus the server commit id (when the
@@ -75,7 +76,7 @@ const changeIconEl = {
 export default function AASLifecycle() {
   const { t, i18n } = useTranslation();
   const locale = i18n.language === 'it' ? 'it-IT' : 'en-US';
-  const { selectedModelId, setSelectedModelId, availableModels, loading } = useAASContext();
+  const { selectedModelId, setSelectedModelId, availableModels, loading, refreshModels } = useAASContext();
   const { setHandlers } = useDialogContext();
   const { getLog } = useAASVersioning();
 
@@ -124,7 +125,10 @@ export default function AASLifecycle() {
 
   const [expanded, setExpanded] = useState<Set<number>>(new Set([0]));
   const [showExportDialog, setShowExportDialog] = useState(false);
+  // diffTarget stays set while the panel slides out so its content doesn't
+  // flicker; diffOpen drives the slide animation.
   const [diffTarget, setDiffTarget] = useState<{ commitId: number; label: string } | null>(null);
+  const [diffOpen, setDiffOpen] = useState(false);
 
   const toggleVersion = (i: number) => {
     setExpanded(prev => {
@@ -171,7 +175,9 @@ export default function AASLifecycle() {
   // No model loaded yet (e.g. first access with a clean cache, before
   // refreshModels resolves). Render a safe placeholder instead of crashing on
   // the undefined latestVersion access below — which produced the white page.
-  if (!currentModel || !latestVersion) {
+  // A model WITHOUT history must NOT hit this branch: the toolbar (model
+  // selector) has to stay usable so the user can switch to another AAS.
+  if (!currentModel) {
     return (
       <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', p: 4 }}>
         <Stack alignItems="center" spacing={1.5}>
@@ -199,7 +205,7 @@ export default function AASLifecycle() {
   }
 
   return (
-    <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+    <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', position: 'relative' }}>
 
       {/* ── Toolbar ── */}
       <Stack
@@ -223,10 +229,18 @@ export default function AASLifecycle() {
         </FormControl>
 
         <Stack direction="row" alignItems="center" spacing={0.75}>
-          <Box sx={{ width: 6, height: 6, borderRadius: '50%', bgcolor: statusDotColor(latestVersion.status) }} />
-          <Typography variant="caption" color="text.disabled" fontFamily="monospace">
-            v{latestVersion.version} · {latestVersion.status} · {currentModel.assetKind}
-          </Typography>
+          {latestVersion ? (
+            <>
+              <Box sx={{ width: 6, height: 6, borderRadius: '50%', bgcolor: statusDotColor(latestVersion.status) }} />
+              <Typography variant="caption" color="text.disabled" fontFamily="monospace">
+                v{latestVersion.version} · {latestVersion.status} · {currentModel.assetKind}
+              </Typography>
+            </>
+          ) : (
+            <Typography variant="caption" color="text.disabled" fontFamily="monospace">
+              {currentModel.assetKind}
+            </Typography>
+          )}
         </Stack>
       </Stack>
 
@@ -279,6 +293,19 @@ export default function AASLifecycle() {
               </Paper>
             ))}
           </Stack>
+
+          {/* ── Empty history ── */}
+          {versions.length === 0 && !logLoading && (
+            <Stack alignItems="center" spacing={1} sx={{ py: 6 }}>
+              <ScheduleRounded sx={{ fontSize: 36, color: 'text.disabled' }} />
+              <Typography variant="body2" color="text.disabled">
+                {t('lifecycle.noHistory')}
+              </Typography>
+              <Typography variant="caption" color="text.disabled" textAlign="center">
+                {t('lifecycle.noHistoryHint')}
+              </Typography>
+            </Stack>
+          )}
 
           {/* ── Timeline ── */}
           <Box sx={{ position: 'relative', pl: 3.5 }}>
@@ -356,6 +383,7 @@ export default function AASLifecycle() {
                             onClick={(e) => {
                               e.stopPropagation();
                               setDiffTarget({ commitId: v.commitId!, label: `v${v.version} rev ${v.revision}` });
+                              setDiffOpen(true);
                             }}
                             sx={{ color: 'primary.main' }}
                           >
@@ -438,19 +466,28 @@ export default function AASLifecycle() {
         </Box>
       </Box>
 
-      <CommitDiffDialog
-        open={Boolean(diffTarget)}
-        onClose={() => setDiffTarget(null)}
-        documentId={currentModel.documentId ?? null}
-        commitId={diffTarget?.commitId ?? null}
-        commitLabel={diffTarget?.label ?? ''}
-        current={{
-          idShort: currentModel.idShort,
-          assetId: currentModel.assetId,
-          description: currentModel.description,
-          submodels: currentModel.submodels,
-        }}
-      />
+      {/* Diff view: slides in over the timeline; the back button slides it out.
+          Unmounting on exit resets the panel state, so reopening refetches. */}
+      <Slide direction="left" in={diffOpen} mountOnEnter unmountOnExit
+        onExited={() => setDiffTarget(null)}>
+        <Box sx={{ position: 'absolute', inset: 0, zIndex: 5, bgcolor: 'background.paper' }}>
+          {diffTarget && (
+            <CommitDiffPanel
+              onBack={() => setDiffOpen(false)}
+              onRestored={() => refreshModels(currentModel.id)}
+              documentId={currentModel.documentId ?? null}
+              commitId={diffTarget.commitId}
+              commitLabel={diffTarget.label}
+              current={{
+                idShort: currentModel.idShort,
+                assetId: currentModel.assetId,
+                description: currentModel.description,
+                submodels: currentModel.submodels,
+              }}
+            />
+          )}
+        </Box>
+      </Slide>
 
       <ConfirmExportDialog
         open={showExportDialog}

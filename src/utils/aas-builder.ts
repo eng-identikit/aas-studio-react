@@ -1,18 +1,41 @@
-import { SubmodelTemplate, AssetKind, SubmodelElement } from '@/context/AASContext';
+import { SubmodelTemplate, AssetKind, SubmodelElement, ElementQualifier } from '@/context/AASContext';
 
 export interface IDTAReference {
   type: string;
   keys: Array<{ type: string; value: string }>;
 }
 
+export interface IDTAQualifier {
+  type: string;
+  valueType: string;
+  value?: string;
+  kind?: string;
+}
+
 export interface IDTASubmodelElement {
-  idShort: string;
+  idShort?: string;
   modelType: string;
   semanticId?: IDTAReference;
+  description?: Array<{ language: string; text: string }>;
   valueType?: string;
   value?: string | unknown[] | IDTAReference;
   contentType?: string;
+  min?: string;
+  max?: string;
+  first?: IDTAReference;
+  second?: IDTAReference;
+  annotations?: unknown[];
+  entityType?: string;
+  globalAssetId?: string;
+  statements?: unknown[];
+  direction?: string;
+  state?: string;
+  messageTopic?: string;
+  observed?: IDTAReference;
+  inputVariables?: unknown[];
+  outputVariables?: unknown[];
   inoutputVariables?: unknown[];
+  qualifiers?: IDTAQualifier[];
   typeValueListElement?: string;
 }
 
@@ -50,11 +73,41 @@ function buildReference(value: string): IDTAReference {
   };
 }
 
+/** BasicEventElement.observed must be a ModelReference; the first key of a
+ * ModelReference must be an Identifiable (AASd-123), so key type is Submodel. */
+function buildModelReference(value: string): IDTAReference {
+  return {
+    type: 'ModelReference',
+    keys: [{ type: 'Submodel', value }],
+  };
+}
+
+function buildQualifiers(qualifiers: ElementQualifier[] | undefined): IDTAQualifier[] | undefined {
+  if (!qualifiers?.length) return undefined;
+  return qualifiers
+    .filter((q) => q.type)
+    .map((q) => ({
+      type: q.type,
+      valueType: q.valueType ?? 'xs:string',
+      ...(q.value != null && q.value !== '' ? { value: q.value } : {}),
+      ...(q.kind ? { kind: q.kind } : {}),
+    }));
+}
+
+/** Operation variables are wrapped: [{ value: <element> }]. */
+function buildOperationVars(els: SubmodelElement[] | undefined): unknown[] | undefined {
+  if (!els?.length) return undefined;
+  return els.map((e) => ({ value: mapSubmodelElement(e) }));
+}
+
 function mapSubmodelElement(el: SubmodelElement): IDTASubmodelElement {
-  const base = {
+  const base: Partial<IDTASubmodelElement> = {
     idShort: el.idShort,
     semanticId: el.semanticId ? buildReference(el.semanticId) : undefined,
   };
+  if (el.description) base.description = [{ language: 'en', text: el.description }];
+  const qualifiers = buildQualifiers(el.qualifiers);
+  if (qualifiers) base.qualifiers = qualifiers;
 
   switch (el.type) {
     case 'Property':
@@ -99,22 +152,78 @@ function mapSubmodelElement(el: SubmodelElement): IDTASubmodelElement {
         ...(items.length ? { value: items } : {}),
       };
     }
+    case 'Range':
+      return {
+        ...base,
+        modelType: 'Range',
+        valueType: el.valueType || 'xs:double',
+        ...(el.min !== undefined && el.min !== '' ? { min: el.min } : {}),
+        ...(el.max !== undefined && el.max !== '' ? { max: el.max } : {}),
+      };
     case 'File':
       return {
         ...base,
         modelType: 'File',
-        value: '',
-        contentType: 'application/octet-stream',
+        value: typeof el.value === 'string' ? el.value : '',
+        contentType: el.contentType || 'application/octet-stream',
       };
-    case 'Operation':
+    case 'Blob':
       return {
         ...base,
-        modelType: 'Operation',
+        modelType: 'Blob',
+        contentType: el.contentType || 'application/octet-stream',
+        ...(typeof el.value === 'string' && el.value !== '' ? { value: el.value } : {}),
       };
     case 'ReferenceElement':
       return {
         ...base,
         modelType: 'ReferenceElement',
+        ...(typeof el.value === 'string' && el.value !== '' ? { value: buildReference(el.value) } : {}),
+      };
+    case 'RelationshipElement':
+    case 'AnnotatedRelationshipElement': {
+      // first/second are plain References: an ExternalReference is always
+      // valid, while a single-key ModelReference would violate AASd-123.
+      const rel: IDTASubmodelElement = {
+        ...base,
+        modelType: el.type,
+        first: buildReference(el.first ?? ''),
+        second: buildReference(el.second ?? ''),
+      };
+      if (el.type === 'AnnotatedRelationshipElement' && el.annotations?.length) {
+        rel.annotations = el.annotations.map(mapSubmodelElement);
+      }
+      return rel;
+    }
+    case 'Entity':
+      return {
+        ...base,
+        modelType: 'Entity',
+        entityType: el.entityType ?? 'SelfManagedEntity',
+        ...(el.entityType !== 'CoManagedEntity' && el.globalAssetId ? { globalAssetId: el.globalAssetId } : {}),
+        ...(el.statements?.length ? { statements: el.statements.map(mapSubmodelElement) } : {}),
+      };
+    case 'Operation':
+      return {
+        ...base,
+        modelType: 'Operation',
+        ...(buildOperationVars(el.inputVariables) ? { inputVariables: buildOperationVars(el.inputVariables) } : {}),
+        ...(buildOperationVars(el.outputVariables) ? { outputVariables: buildOperationVars(el.outputVariables) } : {}),
+        ...(buildOperationVars(el.inoutputVariables) ? { inoutputVariables: buildOperationVars(el.inoutputVariables) } : {}),
+      };
+    case 'Capability':
+      return {
+        ...base,
+        modelType: 'Capability',
+      };
+    case 'BasicEventElement':
+      return {
+        ...base,
+        modelType: 'BasicEventElement',
+        observed: buildModelReference(el.observed ?? ''),
+        direction: el.direction ?? 'output',
+        state: el.state ?? 'on',
+        ...(el.messageTopic ? { messageTopic: el.messageTopic } : {}),
       };
     default:
       return {

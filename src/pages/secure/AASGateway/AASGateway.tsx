@@ -27,6 +27,7 @@ import { mapEnvironmentToModel } from '@/utils/aas-mapper';
 import { useAASContext } from '@/context/AASContext';
 import { useDialogContext } from '@/context/DialogContext';
 import { useCustomSnackbar } from '@/context/SnackbarContext';
+import { useGatewayContext } from '@/context/GatewayContext';
 import GatewayConnectDialog, { type GatewayConnection } from './dialogs/GatewayConnectDialog';
 
 interface ShellGroup {
@@ -54,11 +55,9 @@ export default function AASGateway() {
   const navigate = useNavigate();
 
   const [showConnectDialog, setShowConnectDialog] = useState(false);
-  const [conn, setConn] = useState<GatewayConnection | null>(null);
+  // Connection + listing live in GatewayContext so they survive route changes.
+  const { conn, setConn, shells, setShells, submodels, setSubmodels, error, setError, disconnect } = useGatewayContext();
   const [loading, setLoading] = useState(false);
-  const [shells, setShells] = useState<RemoteShellSummary[]>([]);
-  const [submodels, setSubmodels] = useState<RemoteSubmodel[]>([]);
-  const [error, setError] = useState<string | null>(null);
   const [importing, setImporting] = useState<string | null>(null);
 
   useEffect(() => {
@@ -93,10 +92,7 @@ export default function AASGateway() {
   };
 
   const handleDisconnect = () => {
-    setConn(null);
-    setShells([]);
-    setSubmodels([]);
-    setError(null);
+    disconnect();
   };
 
   const handleImport = async (shellId: string) => {

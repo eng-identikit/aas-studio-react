@@ -5,11 +5,12 @@ import {
   DialogContent,
   DialogActions,
   Button,
+  IconButton,
   Typography,
   Box,
   Grow,
 } from '@mui/material';
-import { FileDownloadRounded } from '@mui/icons-material';
+import { CloseRounded, FileDownloadRounded } from '@mui/icons-material';
 
 interface ConfirmExportDialogProps {
   open: boolean;
@@ -43,6 +44,10 @@ export default function ConfirmExportDialog({
         <Typography variant="h6" fontWeight={700}>
           {title ?? t('confirmExport.title')}
         </Typography>
+        <Box flexGrow={1} />
+        <IconButton size="small" onClick={onClose}>
+          <CloseRounded fontSize="small" />
+        </IconButton>
       </DialogTitle>
 
       <DialogContent>

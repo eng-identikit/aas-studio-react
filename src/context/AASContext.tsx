@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useEffect, useRef, useCallback, useMemo, type ReactNode } from 'react';
 import { useApiWrapper } from '@/api/apiWrapper';
+import { checkSubmodelAgainstTemplate, findTemplate } from '@/utils/template-registry';
 
 // ═══════════════════════════════════
 // TYPES
@@ -11,12 +12,18 @@ export type ChangeType = 'added' | 'modified' | 'removed';
 export type ElementType =
   | 'Property'
   | 'MultiLanguageProperty'
-  | 'SubmodelElementCollection'
-  | 'SubmodelElementList'
-  | 'Operation'
+  | 'Range'
   | 'File'
   | 'Blob'
-  | 'ReferenceElement';
+  | 'ReferenceElement'
+  | 'RelationshipElement'
+  | 'AnnotatedRelationshipElement'
+  | 'Entity'
+  | 'Operation'
+  | 'Capability'
+  | 'BasicEventElement'
+  | 'SubmodelElementCollection'
+  | 'SubmodelElementList';
 export type XsdValueType =
   | 'xs:string'
   | 'xs:int'
@@ -63,14 +70,12 @@ export interface AASModel {
   dirty?: boolean;
 }
 
-export interface SubmodelElementChild {
-  idShort: string;
-  type: ElementType;
+/** IDTA qualifier — `SMT/Cardinality` (One, ZeroToOne, …) drives `required`. */
+export interface ElementQualifier {
+  type: string;
   valueType?: XsdValueType;
-  semanticId?: string;
-  required: boolean;
   value?: string;
-  children?: SubmodelElementChild[];
+  kind?: 'ConceptQualifier' | 'TemplateQualifier' | 'ValueQualifier';
 }
 
 export interface SubmodelElement {
@@ -78,11 +83,31 @@ export interface SubmodelElement {
   type: ElementType;
   valueType?: XsdValueType;
   semanticId?: string;
+  description?: string;
   required: boolean;
   value?: string | Record<string, string>;
-  contentType?: string;
-  children?: SubmodelElementChild[];
+  contentType?: string;                       // File | Blob
+  min?: string;                               // Range
+  max?: string;                               // Range
+  first?: string;                             // RelationshipElement (first key value)
+  second?: string;                            // RelationshipElement
+  annotations?: SubmodelElement[];            // AnnotatedRelationshipElement
+  entityType?: 'CoManagedEntity' | 'SelfManagedEntity'; // Entity
+  globalAssetId?: string;                     // Entity
+  statements?: SubmodelElement[];             // Entity
+  inputVariables?: SubmodelElement[];         // Operation
+  outputVariables?: SubmodelElement[];        // Operation
+  inoutputVariables?: SubmodelElement[];      // Operation
+  direction?: 'input' | 'output';             // BasicEventElement
+  state?: 'on' | 'off';                       // BasicEventElement
+  messageTopic?: string;                      // BasicEventElement
+  observed?: string;                          // BasicEventElement (first key value)
+  qualifiers?: ElementQualifier[];
+  children?: SubmodelElement[];               // SEC | SEL
 }
+
+/** Children share the full element shape (nested structures are recursive). */
+export type SubmodelElementChild = SubmodelElement;
 
 export interface SubmodelTemplate {
   id: string;
@@ -301,13 +326,22 @@ export function validateAAS(
     if (!s.semanticId?.trim()) addFinding(warnings, p, 'semanticId mancante', 'SW001');
     if (!s.elements?.length) addFinding(infos, p, 'Submodel vuoto', 'SI001');
 
-    const eIds = new Set<string>();
-    (s.elements || []).forEach((el, ei) => {
-      const ep = `${p} → ${el.idShort || `[${ei}]`}`;
-      validateIdShort(el.idShort, ep, 'EL-001', 'EL-002');
+    // Template cross-check: if this submodel's semanticId matches a known
+    // template (built-in catalog or IDTA registry), flag mandatory template
+    // elements that are missing and type mismatches.
+    const tpl = findTemplate(s.semanticId, SM_CATALOG);
+    if (tpl && tpl !== s) {
+      const tplRes = checkSubmodelAgainstTemplate(s, tpl, p);
+      errors.push(...tplRes.errors);
+      warnings.push(...tplRes.warnings);
+    }
 
-      if (el.idShort && eIds.has(el.idShort)) addFinding(errors, ep, `"${el.idShort}" duplicato`, 'EL-003');
-      if (el.idShort) eIds.add(el.idShort);
+    // Recursive walk: containers (SEC/SEL), Entity statements, ARE annotations
+    // and Operation variables all get the same per-element rules.
+    const walkElement = (el: SubmodelElement, ep: string, listItem: boolean) => {
+      // AASd-120: list items must NOT have an idShort.
+      if (!listItem) validateIdShort(el.idShort, ep, 'EL-001', 'EL-002');
+      else if (el.idShort) addFinding(warnings, ep, 'Gli item di una SubmodelElementList non dovrebbero avere idShort (AASd-120)', 'EL-120');
 
       if (el.type === 'Property') {
         if (!el.valueType) addFinding(errors, ep, 'valueType obbligatorio', 'EL-004');
@@ -318,12 +352,63 @@ export function validateAAS(
           if (el.valueType === 'xs:boolean' && !['true', 'false', '0', '1'].includes(v.toLowerCase())) addFinding(errors, ep, `"${v}" non booleano`, 'EL-007');
         }
       }
+      if (el.type === 'Range') {
+        if (!el.valueType) addFinding(errors, ep, 'valueType obbligatorio', 'EL-004');
+        const min = el.min?.trim(), max = el.max?.trim();
+        if (min && isNaN(parseFloat(min))) addFinding(errors, ep, `min "${min}" non numerico`, 'EL-010');
+        if (max && isNaN(parseFloat(max))) addFinding(errors, ep, `max "${max}" non numerico`, 'EL-010');
+        if (min && max && !isNaN(parseFloat(min)) && !isNaN(parseFloat(max)) && parseFloat(min) > parseFloat(max))
+          addFinding(errors, ep, `min (${min}) > max (${max})`, 'EL-010');
+      }
+      if (el.type === 'RelationshipElement' || el.type === 'AnnotatedRelationshipElement') {
+        if (!el.first?.trim()) addFinding(errors, ep, 'Riferimento "first" obbligatorio', 'EL-011');
+        if (!el.second?.trim()) addFinding(errors, ep, 'Riferimento "second" obbligatorio', 'EL-011');
+      }
+      if (el.type === 'BasicEventElement' && !el.observed?.trim())
+        addFinding(errors, ep, 'Riferimento "observed" obbligatorio', 'EL-012');
+      if (el.type === 'Entity' && el.entityType !== 'CoManagedEntity' && !el.globalAssetId?.trim())
+        addFinding(warnings, ep, 'globalAssetId raccomandato per SelfManagedEntity', 'EW001');
+      if (el.type === 'SubmodelElementList') {
+        const kinds = new Set((el.children || []).map(c => c.type));
+        if (kinds.size > 1) addFinding(errors, ep, 'Gli item di una lista devono essere tutti dello stesso tipo (AASd-108)', 'EL-013');
+      }
+
       if (!el.semanticId) addFinding(infos, ep, 'semanticId mancante', 'EI001');
-      if (el.required && el.type !== 'SubmodelElementCollection') {
+
+      const VALUE_TYPES: ElementType[] = ['Property', 'MultiLanguageProperty', 'File', 'Blob', 'ReferenceElement'];
+      if (el.required && VALUE_TYPES.includes(el.type)) {
         const isEmpty = el.value === undefined || el.value === ''
           || (typeof el.value === 'object' && Object.keys(el.value).length === 0);
         if (isEmpty) addFinding(errors, ep, 'Campo required vuoto', 'EL-008');
       }
+      if (el.required && el.type === 'Range' && !el.min?.trim() && !el.max?.trim())
+        addFinding(errors, ep, 'Campo required vuoto', 'EL-008');
+
+      const walkGroup = (items: SubmodelElement[] | undefined, label: string, asListItems = false) => {
+        if (!items?.length) return;
+        const dup = new Set<string>();
+        items.forEach((c, ci) => {
+          const cp = `${ep} → ${label}${c.idShort ? ` ${c.idShort}` : `[${ci}]`}`;
+          if (c.idShort && dup.has(c.idShort)) addFinding(errors, cp, `"${c.idShort}" duplicato`, 'EL-003');
+          if (c.idShort) dup.add(c.idShort);
+          walkElement(c, cp, asListItems);
+        });
+      };
+      if (el.type === 'SubmodelElementCollection') walkGroup(el.children, '');
+      if (el.type === 'SubmodelElementList') walkGroup(el.children, '', true);
+      walkGroup(el.statements, 'stmt ');
+      walkGroup(el.annotations, 'ann ');
+      walkGroup(el.inputVariables, 'in ');
+      walkGroup(el.outputVariables, 'out ');
+      walkGroup(el.inoutputVariables, 'inout ');
+    };
+
+    const eIds = new Set<string>();
+    (s.elements || []).forEach((el, ei) => {
+      const ep = `${p} → ${el.idShort || `[${ei}]`}`;
+      if (el.idShort && eIds.has(el.idShort)) addFinding(errors, ep, `"${el.idShort}" duplicato`, 'EL-003');
+      if (el.idShort) eIds.add(el.idShort);
+      walkElement(el, ep, false);
     });
   });
 
@@ -350,6 +435,12 @@ interface AASContextType {
   updateSubmodel: (smId: string, patch: Partial<SubmodelTemplate>) => void;
   updateElement: (smId: string, elIdx: number, field: string, value: string | Record<string, string>) => void;
   updateChild: (smId: string, elIdx: number, path: number[], field: string, value: string) => void;
+  /** Append `el` to the submodel root (parentPath []) or to a container's children. */
+  addElementAt: (smId: string, parentPath: number[], el: SubmodelElement) => void;
+  /** Replace the element addressed by `path` (root index + child indices). */
+  replaceElementAt: (smId: string, path: number[], el: SubmodelElement) => void;
+  /** Remove the element addressed by `path`. */
+  removeElementAt: (smId: string, path: number[]) => void;
   importAas: (model: AASModel) => void;
   setSubmodels: (sms: SubmodelTemplate[]) => void;
   /** Reload from the server. Pass the id of a just-committed model so its
@@ -570,6 +661,50 @@ export function AASProvider({ children }: { children: ReactNode }) {
     }));
   }, [selectedModelId]);
 
+  // Structural mutations for the element editor. `path`: first index addresses
+  // the root element, the rest descend through `children`.
+  const mutateElements = useCallback((smId: string, fn: (elements: SubmodelElement[]) => SubmodelElement[]) => {
+    setAvailableModels(prev => prev.map(m => {
+      if (m.id !== selectedModelId) return m;
+      return {
+        ...m,
+        dirty: true,
+        submodels: m.submodels.map(s => (s.id === smId ? { ...s, elements: fn(s.elements || []) } : s)),
+      };
+    }));
+  }, [selectedModelId]);
+
+  const addElementAt = useCallback((smId: string, parentPath: number[], el: SubmodelElement) => {
+    const appendIn = (list: SubmodelElement[], [head, ...rest]: number[]): SubmodelElement[] => {
+      if (head === undefined) return [...list, el];
+      const next = [...list];
+      next[head] = { ...next[head], children: appendIn(next[head].children || [], rest) };
+      return next;
+    };
+    mutateElements(smId, (elements) => appendIn(elements, parentPath));
+  }, [mutateElements]);
+
+  const replaceElementAt = useCallback((smId: string, path: number[], el: SubmodelElement) => {
+    const setIn = (list: SubmodelElement[], [head, ...rest]: number[]): SubmodelElement[] => {
+      const next = [...list];
+      next[head] = rest.length === 0 ? el : { ...next[head], children: setIn(next[head].children || [], rest) };
+      return next;
+    };
+    if (!path.length) return;
+    mutateElements(smId, (elements) => setIn(elements, path));
+  }, [mutateElements]);
+
+  const removeElementAt = useCallback((smId: string, path: number[]) => {
+    const dropIn = (list: SubmodelElement[], [head, ...rest]: number[]): SubmodelElement[] => {
+      if (rest.length === 0) return list.filter((_, i) => i !== head);
+      const next = [...list];
+      next[head] = { ...next[head], children: dropIn(next[head].children || [], rest) };
+      return next;
+    };
+    if (!path.length) return;
+    mutateElements(smId, (elements) => dropIn(elements, path));
+  }, [mutateElements]);
+
   const updateVersionStatus = useCallback((status: VersionStatus) => {
     // 1. Aggiorna subito localStorage/stato locale
     setAvailableModels(prev => prev.map(m => {
@@ -624,6 +759,9 @@ export function AASProvider({ children }: { children: ReactNode }) {
     updateSubmodel,
     updateElement,
     updateChild,
+    addElementAt,
+    replaceElementAt,
+    removeElementAt,
     importAas,
     setSubmodels,
     refreshModels,
@@ -632,6 +770,7 @@ export function AASProvider({ children }: { children: ReactNode }) {
     selectedModelId, availableModels, currentModel, currentVersion, loading,
     createModel, deleteModel, updateCurrentModel, updateVersionStatus,
     addSubmodel, removeSubmodel, updateSubmodel, updateElement, updateChild,
+    addElementAt, replaceElementAt, removeElementAt,
     importAas, setSubmodels, refreshModels, clearDirty,
   ]);
 

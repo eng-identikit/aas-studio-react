@@ -2,18 +2,23 @@ import { useEffect, useMemo, useState, Fragment } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   Box,
+  Button,
+  Checkbox,
   Chip,
   CircularProgress,
   Dialog,
+  DialogActions,
   DialogContent,
-  Grow,
+  DialogTitle,
   IconButton,
   Stack,
   Switch,
+  TextField,
   Tooltip,
   Typography,
 } from '@mui/material';
 import {
+  ArrowBackRounded,
   ArticleOutlined,
   CloseRounded,
   CompareArrowsRounded,
@@ -21,10 +26,12 @@ import {
   ExpandMoreRounded,
   FolderOutlined,
   FolderOpenOutlined,
+  RestoreRounded,
   UnfoldMoreRounded,
 } from '@mui/icons-material';
 
 import { useAASVersioning } from '@/hooks/useAASVersioning';
+import { useCustomSnackbar } from '@/context/SnackbarContext';
 import type { SubmodelTemplate } from '@/context/AASContext';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -44,6 +51,9 @@ interface DiffFile {
   status: FileStatus;
   oldText: string;
   newText: string;
+  // Raw values behind the two sides, used to apply per-file restores.
+  oldVal?: any;
+  newVal?: any;
 }
 
 interface DiffGroup {
@@ -51,15 +61,19 @@ interface DiffGroup {
   label: string;
   status: FileStatus;
   files: DiffFile[];
+  oldSm?: SubmodelTemplate;
+  newSm?: SubmodelTemplate;
+  oldIndex?: number;
 }
 
-interface CommitDiffDialogProps {
-  open: boolean;
-  onClose: () => void;
+interface CommitDiffPanelProps {
+  onBack: () => void;
   documentId: number | null;
   commitId: number | null;
   commitLabel: string; // e.g. "v1.2 rev A"
   current: CurrentContent;
+  /** Called after a per-file restore commit succeeds, so the parent can refresh models. */
+  onRestored?: () => void;
 }
 
 // ── Diff model builders ───────────────────────────────────────────────────────
@@ -110,6 +124,8 @@ function buildDiffGroups(oldContent: any, current: CurrentContent, metaLabel: st
     status: statusOf(fmt(oldMeta), fmt(newMeta)),
     oldText: fmt(oldMeta),
     newText: fmt(newMeta),
+    oldVal: oldMeta,
+    newVal: newMeta,
   };
   groups.push({ key: '__meta__', label: metaLabel, status: metaFile.status, files: [metaFile] });
 
@@ -137,6 +153,8 @@ function buildDiffGroups(oldContent: any, current: CurrentContent, metaLabel: st
         status: statusOf(fmt(pair.oldItem), fmt(pair.newItem)),
         oldText: fmt(pair.oldItem),
         newText: fmt(pair.newItem),
+        oldVal: pair.oldItem,
+        newVal: pair.newItem,
       });
     }
 
@@ -145,10 +163,70 @@ function buildDiffGroups(oldContent: any, current: CurrentContent, metaLabel: st
       : !newItem ? 'removed'
       : files.some(f => f.status !== 'unchanged') ? 'modified' : 'unchanged';
 
-    groups.push({ key, label: key, status: groupStatus, files });
+    groups.push({
+      key, label: key, status: groupStatus, files,
+      oldSm: oldItem, newSm: newItem,
+      oldIndex: oldItem ? oldSms.indexOf(oldItem) : undefined,
+    });
   }
 
   return groups;
+}
+
+// Build the content for a restore commit: the current working content with the
+// selected files reverted to the commit snapshot (GitLab-style partial revert).
+// Matching is by object identity — oldVal/newVal reference the same objects that
+// buildDiffGroups received.
+function applyRestore(current: CurrentContent, groups: DiffGroup[], selected: Set<string>) {
+  const metaOld = groups.find(g => g.key === '__meta__')?.files[0]?.oldVal;
+  const useOldMeta = selected.has('__meta__') && metaOld;
+  const out = {
+    idShort: useOldMeta ? metaOld.idShort : current.idShort,
+    assetId: useOldMeta ? metaOld.assetId : current.assetId,
+    description: useOldMeta ? (metaOld.description ?? '') : current.description,
+    submodels: [] as SubmodelTemplate[],
+  };
+
+  const byNewSm = new Map(groups.filter(g => g.newSm).map(g => [g.newSm, g] as const));
+
+  for (const sm of current.submodels ?? []) {
+    const g = byNewSm.get(sm);
+    if (!g) { out.submodels.push(sm); continue; }
+    const propsSelected = selected.has(`${g.key}/__props__`);
+    // Submodel that only exists in the current version: restoring its
+    // properties means the whole submodel goes away.
+    if (propsSelected && !g.oldSm) continue;
+    let next: SubmodelTemplate = { ...sm, elements: [...(sm.elements ?? [])] };
+    if (propsSelected && g.oldSm) next = { ...next, ...submodelMeta(g.oldSm) };
+    for (const f of g.files) {
+      if (f.key.endsWith('/__props__') || !selected.has(f.key)) continue;
+      if (f.oldVal && f.newVal) {
+        const i = next.elements.findIndex(e => e === f.newVal);
+        if (i >= 0) next.elements[i] = f.oldVal;
+      } else if (f.oldVal) {
+        next.elements.push(f.oldVal);
+      } else if (f.newVal) {
+        next.elements = next.elements.filter(e => e !== f.newVal);
+      }
+    }
+    out.submodels.push(next);
+  }
+
+  // Submodels removed in the current version: re-create them (old metadata plus
+  // the selected elements) when any of their files is selected.
+  for (const g of groups) {
+    if (g.key === '__meta__' || g.newSm || !g.oldSm) continue;
+    const wanted = g.files.filter(f => selected.has(f.key));
+    if (!wanted.length) continue;
+    const restored: SubmodelTemplate = { ...g.oldSm, elements: [] };
+    for (const f of wanted) {
+      if (!f.key.endsWith('/__props__') && f.oldVal) restored.elements.push(f.oldVal);
+    }
+    const at = Math.min(g.oldIndex ?? out.submodels.length, out.submodels.length);
+    out.submodels.splice(at, 0, restored);
+  }
+
+  return out;
 }
 
 // ── Line diff (LCS) ───────────────────────────────────────────────────────────
@@ -282,11 +360,12 @@ const ROW_SIGN: Record<DiffRow['type'], string> = { ctx: ' ', add: '+', del: '-'
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
-export default function CommitDiffDialog({
-  open, onClose, documentId, commitId, commitLabel, current,
-}: CommitDiffDialogProps) {
+export default function CommitDiffPanel({
+  onBack, documentId, commitId, commitLabel, current, onRestored,
+}: CommitDiffPanelProps) {
   const { t } = useTranslation();
-  const { checkout } = useAASVersioning();
+  const { checkout, commitSubmodel } = useAASVersioning();
+  const { showSnackbar } = useCustomSnackbar();
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -295,13 +374,18 @@ export default function CommitDiffDialog({
   const [showUnchanged, setShowUnchanged] = useState(false);
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
   const [expandedFolds, setExpandedFolds] = useState<Set<number>>(new Set());
+  const [restoreSel, setRestoreSel] = useState<Set<string>>(new Set());
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [restoreMsg, setRestoreMsg] = useState('');
+  const [restoring, setRestoring] = useState(false);
 
   useEffect(() => {
-    if (!open || !documentId || !commitId) return;
+    if (!documentId || !commitId) return;
     setLoading(true);
     setError(null);
     setOldContent(null);
     setSelectedKey(null);
+    setRestoreSel(new Set());
     setExpandedFolds(new Set());
     checkout(documentId, { commit_id: commitId })
       .then(res => {
@@ -311,7 +395,7 @@ export default function CommitDiffDialog({
       .catch(() => setError(t('lifecycle.diff.loadError')))
       .finally(() => setLoading(false));
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, documentId, commitId]);
+  }, [documentId, commitId]);
 
   const groups = useMemo(
     () => (oldContent !== null
@@ -349,6 +433,48 @@ export default function CommitDiffDialog({
       return next;
     });
 
+  // ── Per-file restore (GitLab-style partial revert onto a new Draft) ─────────
+
+  const toggleRestore = (keys: string[], on: boolean) =>
+    setRestoreSel(prev => {
+      const next = new Set(prev);
+      keys.forEach(k => (on ? next.add(k) : next.delete(k)));
+      return next;
+    });
+
+  const allSelected = changedFiles.length > 0 && changedFiles.every(f => restoreSel.has(f.key));
+  const someSelected = changedFiles.some(f => restoreSel.has(f.key));
+
+  const openRestoreConfirm = () => {
+    setRestoreMsg(t('lifecycle.diff.restoreDefaultMsg', { count: restoreSel.size, commit: commitLabel }));
+    setConfirmOpen(true);
+  };
+
+  const handleRestore = async () => {
+    if (!documentId || restoreSel.size === 0) return;
+    setRestoring(true);
+    try {
+      const content = applyRestore(current, groups, restoreSel);
+      const res = await commitSubmodel(documentId, {
+        message: restoreMsg.trim(),
+        content,
+        status: 'Draft',
+      });
+      if (res.status === 'Success') {
+        showSnackbar(t('lifecycle.diff.restoreSuccess', { version: res.data?.commit?.version ?? '' }), 'success');
+        setRestoreSel(new Set());
+        setConfirmOpen(false);
+        onRestored?.();
+      } else {
+        showSnackbar(res.message || t('lifecycle.diff.restoreError'), 'error');
+      }
+    } catch (err: any) {
+      showSnackbar(err?.message || t('lifecycle.diff.restoreError'), 'error');
+    } finally {
+      setRestoring(false);
+    }
+  };
+
   const statusTitle = (s: FileStatus) =>
     s === 'added' ? t('dashboard.change.added')
     : s === 'removed' ? t('dashboard.change.removed')
@@ -378,17 +504,15 @@ export default function CommitDiffDialog({
   );
 
   return (
-    <Dialog
-      open={open}
-      onClose={onClose}
-      fullWidth
-      maxWidth="xl"
-      slots={{ transition: Grow }}
-      slotProps={{ transition: { timeout: 250 }, paper: { sx: { height: '88vh' } } }}
-    >
+    <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden', bgcolor: 'background.paper' }}>
       {/* Header */}
       <Stack direction="row" alignItems="center" spacing={1.5}
         sx={{ px: 2.5, py: 1.5, borderBottom: 1, borderColor: 'divider', flexShrink: 0 }}>
+        <Tooltip title={t('lifecycle.diff.backBtn')}>
+          <IconButton size="small" onClick={onBack}>
+            <ArrowBackRounded fontSize="small" />
+          </IconButton>
+        </Tooltip>
         <CompareArrowsRounded sx={{ color: 'primary.main' }} />
         <Box sx={{ minWidth: 0 }}>
           <Typography variant="subtitle1" fontWeight={700} lineHeight={1.2} noWrap>
@@ -399,6 +523,20 @@ export default function CommitDiffDialog({
           </Typography>
         </Box>
         <Box flexGrow={1} />
+        {restoreSel.size > 0 && (
+          <Tooltip title={t('lifecycle.diff.restoreTooltip', { commit: commitLabel })}>
+            <Button
+              size="small"
+              variant="contained"
+              disableElevation
+              startIcon={<RestoreRounded sx={{ fontSize: 16 }} />}
+              onClick={openRestoreConfirm}
+              sx={{ textTransform: 'none', fontSize: 12 }}
+            >
+              {t('lifecycle.diff.restoreBtn', { count: restoreSel.size })}
+            </Button>
+          </Tooltip>
+        )}
         {!loading && !error && (
           <Chip size="small" variant="outlined" color={changedFiles.length ? 'warning' : 'success'}
             label={changedFiles.length
@@ -406,12 +544,9 @@ export default function CommitDiffDialog({
               : t('lifecycle.diff.noChanges')}
             sx={{ fontFamily: 'monospace', fontSize: 10 }} />
         )}
-        <IconButton size="small" onClick={onClose}>
-          <CloseRounded fontSize="small" />
-        </IconButton>
       </Stack>
 
-      <DialogContent sx={{ p: 0, display: 'flex', overflow: 'hidden' }}>
+      <Box sx={{ flex: 1, minHeight: 0, display: 'flex', overflow: 'hidden' }}>
         {loading ? (
           <Stack flex={1} alignItems="center" justifyContent="center" spacing={1.5}>
             <CircularProgress size={28} />
@@ -431,6 +566,18 @@ export default function CommitDiffDialog({
             }}>
               <Stack direction="row" alignItems="center" spacing={0.5}
                 sx={{ px: 1.5, py: 0.75, borderBottom: 1, borderColor: 'divider', flexShrink: 0 }}>
+                <Tooltip title={t('lifecycle.diff.selectAllChanged')}>
+                  <span>
+                    <Checkbox
+                      size="small"
+                      sx={{ p: 0.25, mr: 0.25 }}
+                      disabled={changedFiles.length === 0}
+                      checked={allSelected}
+                      indeterminate={someSelected && !allSelected}
+                      onChange={(_, on) => toggleRestore(changedFiles.map(f => f.key), on)}
+                    />
+                  </span>
+                </Tooltip>
                 <Typography variant="caption" fontWeight={700} color="text.secondary" flex={1}>
                   {t('lifecycle.diff.filesHeader')}
                 </Typography>
@@ -443,11 +590,22 @@ export default function CommitDiffDialog({
                   const visibleFiles = group.files.filter(f => showUnchanged || f.status !== 'unchanged');
                   if (!visibleFiles.length && !showUnchanged && group.status === 'unchanged') return null;
                   const collapsed = collapsedGroups.has(group.key);
+                  const groupChanged = group.files.filter(f => f.status !== 'unchanged');
+                  const groupAll = groupChanged.length > 0 && groupChanged.every(f => restoreSel.has(f.key));
+                  const groupSome = groupChanged.some(f => restoreSel.has(f.key));
                   return (
                     <Box key={group.key}>
                       <Stack direction="row" alignItems="center" spacing={0.75}
                         onClick={() => toggleGroup(group.key)}
                         sx={{ px: 1.25, py: 0.5, cursor: 'pointer', '&:hover': { bgcolor: 'action.hover' } }}>
+                        <Checkbox
+                          size="small"
+                          sx={{ p: 0, visibility: groupChanged.length ? 'visible' : 'hidden' }}
+                          checked={groupAll}
+                          indeterminate={groupSome && !groupAll}
+                          onClick={(e) => e.stopPropagation()}
+                          onChange={(_, on) => toggleRestore(groupChanged.map(f => f.key), on)}
+                        />
                         <ExpandMoreRounded sx={{
                           fontSize: 15, color: 'text.disabled',
                           transform: collapsed ? 'rotate(-90deg)' : 'none', transition: 'transform .15s',
@@ -468,6 +626,13 @@ export default function CommitDiffDialog({
                             bgcolor: selectedKey === file.key ? 'action.selected' : 'transparent',
                             '&:hover': { bgcolor: 'action.hover' },
                           }}>
+                          <Checkbox
+                            size="small"
+                            sx={{ p: 0, visibility: file.status !== 'unchanged' ? 'visible' : 'hidden' }}
+                            checked={restoreSel.has(file.key)}
+                            onClick={(e) => e.stopPropagation()}
+                            onChange={(_, on) => toggleRestore([file.key], on)}
+                          />
                           <ArticleOutlined sx={{ fontSize: 13, color: 'text.disabled', flexShrink: 0 }} />
                           <Typography variant="caption" fontFamily="monospace" noWrap flex={1}
                             sx={{ opacity: file.status === 'unchanged' ? 0.55 : 1 }}>
@@ -543,7 +708,48 @@ export default function CommitDiffDialog({
             </Box>
           </>
         )}
-      </DialogContent>
-    </Dialog>
+      </Box>
+
+      {/* Restore confirmation: creates a new Draft commit with the selected
+          files reverted to the compared snapshot. */}
+      <Dialog open={confirmOpen} onClose={() => !restoring && setConfirmOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <RestoreRounded color="primary" />
+          {t('lifecycle.diff.restoreTitle')}
+          <Box flexGrow={1} />
+          <IconButton size="small" onClick={() => setConfirmOpen(false)} disabled={restoring}>
+            <CloseRounded fontSize="small" />
+          </IconButton>
+        </DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" color="text.secondary" mb={2}>
+            {t('lifecycle.diff.restoreMessage', { count: restoreSel.size, commit: commitLabel })}
+          </Typography>
+          <TextField
+            fullWidth
+            size="small"
+            multiline
+            minRows={2}
+            label={t('lifecycle.diff.restoreMsgLabel')}
+            value={restoreMsg}
+            onChange={(e) => setRestoreMsg(e.target.value)}
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setConfirmOpen(false)} disabled={restoring}>
+            {t('common.buttons.cancel')}
+          </Button>
+          <Button
+            variant="contained"
+            disableElevation
+            onClick={handleRestore}
+            disabled={restoring || !restoreMsg.trim()}
+            startIcon={restoring ? <CircularProgress size={14} /> : <RestoreRounded />}
+          >
+            {t('lifecycle.diff.restoreConfirm')}
+          </Button>
+        </DialogActions>
+      </Dialog>
+    </Box>
   );
 }

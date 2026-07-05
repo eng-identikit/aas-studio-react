@@ -81,11 +81,11 @@ export default function SideMenu() {
         <DrawerHeader
           sx={{
             justifyContent: 'center',
-            // When collapsed, stack the favicon above the toggle so each is
-            // horizontally centered in the narrow rail (a row would push them
-            // to opposite edges).
+            // When collapsed, stack the expand toggle above the favicon so each
+            // is horizontally centered in the narrow rail (a row would push
+            // them to opposite edges).
             ...(open ? {} : {
-              flexDirection: 'column',
+              flexDirection: 'column-reverse',
               gap: 1.5,
               py: 2,
               height: 'auto',

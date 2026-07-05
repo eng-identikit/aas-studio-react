@@ -53,7 +53,7 @@ import {
 import VersionHistoryDrawer from './components/VersionHistoryDrawer';
 import GraphView from './components/GraphView';
 
-import { useAASContext, XsdValueType, AASModel, SubmodelTemplate, SubmodelElement, SubmodelElementChild, validateAAS, ValidationResult } from '@/context/AASContext';
+import { useAASContext, XsdValueType, AASModel, SubmodelTemplate, SubmodelElement, SubmodelElementChild, ElementType, validateAAS, ValidationResult } from '@/context/AASContext';
 import { useDialogContext } from '@/context/DialogContext';
 import { useAASVersioning } from '@/hooks/useAASVersioning';
 import { useCustomSnackbar } from '@/context/SnackbarContext';
@@ -63,13 +63,21 @@ import AddSubmodelDialog from './dialogs/AddSubmodelDialog';
 import AddEntityDialog from './dialogs/AddEntityDialog';
 import CommitDialog from './dialogs/CommitDialog';
 import ConfirmExportDialog from './dialogs/ConfirmExportDialog';
+import ElementFormDialog from './dialogs/ElementFormDialog';
 import type { CommitStatus } from '@/hooks/useAASVersioning';
 import { buildAasEnvironment } from '@/utils/aas-builder';
+import { buildAasxBlob } from '@/utils/aasx-export';
 import { verifyWithLibrary } from '@/utils/aas-validation';
 import { mapElement } from '@/utils/aas-mapper';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 type EditorView = 'list' | 'graph';
+
+// Request to open the element form: create appends under `parentPath` ([] =
+// submodel root), edit replaces the element addressed by `path`.
+export type ElementFormRequest =
+  | { mode: 'create'; smId: string; parentPath: number[]; isListItem: boolean }
+  | { mode: 'edit'; smId: string; path: number[]; initial: SubmodelElement; isListItem: boolean };
 
 // ═══════════════════════
 // MAIN PAGE COMPONENT
@@ -90,6 +98,37 @@ const activateOnKey = (fn: () => void) => (e: KeyboardEvent) => {
   if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fn(); }
 };
 
+// Per-row structural actions: edit, delete and — for containers — add child.
+function RowActions({ onEdit, onAddChild, onDelete }: {
+  onEdit: () => void;
+  onAddChild?: () => void;
+  onDelete: () => void;
+}) {
+  const { t } = useTranslation();
+  const stop = (fn: () => void) => (e: { stopPropagation: () => void }) => { e.stopPropagation(); fn(); };
+  return (
+    <Stack direction="row" alignItems="center" sx={{ flexShrink: 0 }}>
+      {onAddChild && (
+        <Tooltip title={t('editor.addChildElement')}>
+          <IconButton size="small" onClick={stop(onAddChild)} sx={{ p: 0.25, color: 'success.main' }}>
+            <AddRounded sx={{ fontSize: 14 }} />
+          </IconButton>
+        </Tooltip>
+      )}
+      <Tooltip title={t('editor.editElement')}>
+        <IconButton size="small" onClick={stop(onEdit)} sx={{ p: 0.25, color: 'primary.main' }}>
+          <EditRounded sx={{ fontSize: 13 }} />
+        </IconButton>
+      </Tooltip>
+      <Tooltip title={t('editor.deleteElement')}>
+        <IconButton size="small" onClick={stop(onDelete)} sx={{ p: 0.25, color: 'error.main' }}>
+          <DeleteRounded sx={{ fontSize: 13 }} />
+        </IconButton>
+      </Tooltip>
+    </Stack>
+  );
+}
+
 // Recursively render a container's children as indented sub-rows. Containers
 // (Collection/List) can nest to any depth; `path` is the child-index chain from
 // the owning top-level element down to this row, used both as the expand key and
@@ -99,17 +138,21 @@ interface ChildRowsProps {
   elIdx: number;
   children: SubmodelElementChild[];
   path: number[];
+  parentType: ElementType;
   expanded: Set<string>;
   onToggle: (key: string) => void;
   onUpdate: (smId: string, elIdx: number, path: number[], field: string, value: string) => void;
+  onOpenElementForm: (req: ElementFormRequest) => void;
+  onRequestDeleteElement: (smId: string, path: number[], name: string) => void;
 }
 
-function ChildRows({ smId, elIdx, children, path, expanded, onToggle, onUpdate }: ChildRowsProps) {
+function ChildRows({ smId, elIdx, children, path, parentType, expanded, onToggle, onUpdate, onOpenElementForm, onRequestDeleteElement }: ChildRowsProps) {
   const { t } = useTranslation();
   return (
     <>
       {children.map((ch, ci) => {
         const childPath = [...path, ci];
+        const fullPath = [elIdx, ...childPath];
         const isContainer = ch.type === 'SubmodelElementCollection' || ch.type === 'SubmodelElementList';
         const key = `${smId}:${elIdx}:${childPath.join('.')}`;
         const open = expanded.has(key);
@@ -161,6 +204,17 @@ function ChildRows({ smId, elIdx, children, path, expanded, onToggle, onUpdate }
                   />
                 </>
               )}
+              <RowActions
+                onEdit={() => onOpenElementForm({
+                  mode: 'edit', smId, path: fullPath, initial: ch,
+                  isListItem: parentType === 'SubmodelElementList',
+                })}
+                onAddChild={isContainer ? () => onOpenElementForm({
+                  mode: 'create', smId, parentPath: fullPath,
+                  isListItem: ch.type === 'SubmodelElementList',
+                }) : undefined}
+                onDelete={() => onRequestDeleteElement(smId, fullPath, ch.idShort || ch.type)}
+              />
             </Stack>
             {isContainer && (
               <Collapse in={open} unmountOnExit>
@@ -171,9 +225,12 @@ function ChildRows({ smId, elIdx, children, path, expanded, onToggle, onUpdate }
                       elIdx={elIdx}
                       children={ch.children}
                       path={childPath}
+                      parentType={ch.type}
                       expanded={expanded}
                       onToggle={onToggle}
                       onUpdate={onUpdate}
+                      onOpenElementForm={onOpenElementForm}
+                      onRequestDeleteElement={onRequestDeleteElement}
                     />
                   ) : (
                     <Typography variant="caption" fontFamily="monospace" color="text.secondary">{t('editor.empty')}</Typography>
@@ -242,11 +299,13 @@ interface ElementRowProps {
   onToggleElement: (key: string) => void;
   onUpdateElement: (smId: string, elIdx: number, field: string, value: string | Record<string, string>) => void;
   onUpdateChild: (smId: string, elIdx: number, path: number[], field: string, value: string) => void;
+  onOpenElementForm: (req: ElementFormRequest) => void;
+  onRequestDeleteElement: (smId: string, path: number[], name: string) => void;
 }
 
 const ElementRow = memo(function ElementRow({
   smId, smPrefix, el, ei, validationResult, expandedElements,
-  onToggleElement, onUpdateElement, onUpdateChild,
+  onToggleElement, onUpdateElement, onUpdateChild, onOpenElementForm, onRequestDeleteElement,
 }: ElementRowProps) {
   const { t } = useTranslation();
   const isContainer = el.type === 'SubmodelElementCollection' || el.type === 'SubmodelElementList';
@@ -354,6 +413,15 @@ const ElementRow = memo(function ElementRow({
             />
           )}
         </Stack>
+
+        <RowActions
+          onEdit={() => onOpenElementForm({ mode: 'edit', smId, path: [ei], initial: el, isListItem: false })}
+          onAddChild={isContainer ? () => onOpenElementForm({
+            mode: 'create', smId, parentPath: [ei],
+            isListItem: el.type === 'SubmodelElementList',
+          }) : undefined}
+          onDelete={() => onRequestDeleteElement(smId, [ei], el.idShort || el.type)}
+        />
       </Stack>
 
       {/* Container children (indented sub-rows, recursive). unmountOnExit is
@@ -368,9 +436,12 @@ const ElementRow = memo(function ElementRow({
                 elIdx={ei}
                 children={el.children}
                 path={[]}
+                parentType={el.type}
                 expanded={expandedElements}
                 onToggle={onToggleElement}
                 onUpdate={onUpdateChild}
+                onOpenElementForm={onOpenElementForm}
+                onRequestDeleteElement={onRequestDeleteElement}
               />
             ) : (
               <Typography variant="caption" fontFamily="monospace" color="text.secondary">{t('editor.empty')}</Typography>
@@ -410,11 +481,13 @@ interface ElementsTableProps {
   onToggleElement: (key: string) => void;
   onUpdateElement: (smId: string, elIdx: number, field: string, value: string | Record<string, string>) => void;
   onUpdateChild: (smId: string, elIdx: number, path: number[], field: string, value: string) => void;
+  onOpenElementForm: (req: ElementFormRequest) => void;
+  onRequestDeleteElement: (smId: string, path: number[], name: string) => void;
 }
 
 function ElementsTable({
   smId, smPrefix, elements, validationResult, expandedElements,
-  onToggleElement, onUpdateElement, onUpdateChild,
+  onToggleElement, onUpdateElement, onUpdateChild, onOpenElementForm, onRequestDeleteElement,
 }: ElementsTableProps) {
   const { t } = useTranslation();
   const [visible, setVisible] = useState(() => Math.min(ROW_CHUNK, elements.length));
@@ -449,6 +522,8 @@ function ElementsTable({
           onToggleElement={onToggleElement}
           onUpdateElement={onUpdateElement}
           onUpdateChild={onUpdateChild}
+          onOpenElementForm={onOpenElementForm}
+          onRequestDeleteElement={onRequestDeleteElement}
         />
       ))}
 
@@ -483,12 +558,14 @@ interface SubmodelCardProps {
   onUpdateSubmodel: (smId: string, patch: Partial<SubmodelTemplate>) => void;
   onUpdateElement: (smId: string, elIdx: number, field: string, value: string | Record<string, string>) => void;
   onUpdateChild: (smId: string, elIdx: number, path: number[], field: string, value: string) => void;
+  onOpenElementForm: (req: ElementFormRequest) => void;
+  onRequestDeleteElement: (smId: string, path: number[], name: string) => void;
 }
 
 const SubmodelCard = memo(function SubmodelCard({
   sm, idx, isOpen, isEditing, validationResult, expandedElements,
   onToggleSubmodel, onToggleEditSm, onDeleteSubmodel, onToggleElement,
-  onUpdateSubmodel, onUpdateElement, onUpdateChild,
+  onUpdateSubmodel, onUpdateElement, onUpdateChild, onOpenElementForm, onRequestDeleteElement,
 }: SubmodelCardProps) {
   const { t } = useTranslation();
   const smPrefix = `SM[${idx}]`;
@@ -544,9 +621,24 @@ const SubmodelCard = memo(function SubmodelCard({
         )}
         <IconButton
           size="small"
+          aria-label={t('editor.addElement')}
+          title={t('editor.addElement')}
+          onClick={(e) => {
+            e.stopPropagation();
+            onOpenElementForm({ mode: 'create', smId: sm.id, parentPath: [], isListItem: false });
+          }}
+          sx={{
+            color: 'success.main',
+            backgroundColor: 'background.default'
+          }}
+        >
+          <AddRounded sx={{ fontSize: 15 }} />
+        </IconButton>
+        <IconButton
+          size="small"
           aria-label={t('editor.editSubmodel')}
           onClick={(e) => { e.stopPropagation(); onToggleEditSm(idx); }}
-          sx={{ 
+          sx={{
             color: 'primary.main',
             backgroundColor: 'background.default'
           }}
@@ -635,6 +727,8 @@ const SubmodelCard = memo(function SubmodelCard({
           onToggleElement={onToggleElement}
           onUpdateElement={onUpdateElement}
           onUpdateChild={onUpdateChild}
+          onOpenElementForm={onOpenElementForm}
+          onRequestDeleteElement={onRequestDeleteElement}
         />
       )}
     </Paper>
@@ -652,6 +746,7 @@ export default function AASEditor() {
     updateCurrentModel,
     updateVersionStatus,
     addSubmodel, removeSubmodel, updateSubmodel, updateElement, updateChild,
+    addElementAt, replaceElementAt, removeElementAt,
     importAas, refreshModels
   } = useAASContext();
 
@@ -683,6 +778,8 @@ export default function AASEditor() {
   const [validationExpanded, setValidationExpanded] = useState(false);
   const [editingSmIdx, setEditingSmIdx] = useState<Set<number>>(new Set());
   const [railCollapsed, setRailCollapsed] = useState(false);
+  const [elementForm, setElementForm] = useState<ElementFormRequest | null>(null);
+  const [elementToDelete, setElementToDelete] = useState<{ smId: string; path: number[]; name: string } | null>(null);
 
   useEffect(() => {
     setValidationResult(null);
@@ -691,6 +788,16 @@ export default function AASEditor() {
 
   // Stable callbacks: passed to the memoized SubmodelCard, so they must not be
   // recreated on every render or the memo is useless.
+  const openElementForm = useCallback((req: ElementFormRequest) => setElementForm(req), []);
+  const requestDeleteElement = useCallback((smId: string, path: number[], name: string) =>
+    setElementToDelete({ smId, path, name }), []);
+
+  const handleElementFormSave = useCallback((el: SubmodelElement) => {
+    if (!elementForm) return;
+    if (elementForm.mode === 'create') addElementAt(elementForm.smId, elementForm.parentPath, el);
+    else replaceElementAt(elementForm.smId, elementForm.path, el);
+  }, [elementForm, addElementAt, replaceElementAt]);
+
   const toggleEditSm = useCallback((idx: number) =>
     setEditingSmIdx(prev => {
       const next = new Set(prev);
@@ -752,14 +859,14 @@ export default function AASEditor() {
     }
   }, [aasIdShort, aasAssetId, aasDescription, currentModel?.assetKind, submodels]);
 
-  const handleExport = useCallback(() => {
+  const handleExport = useCallback(async () => {
     const env = buildAasEnvironment(aasIdShort, aasAssetId, aasDescription, currentModel?.assetKind ?? 'Instance', submodels);
-    const data = JSON.stringify(env, null, 2);
-    const blob = new Blob([data], { type: 'application/json' });
+    // Real AASX (OPC package), not a bare JSON dump.
+    const blob = await buildAasxBlob(env);
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `${aasIdShort || 'aas'}.json`;
+    a.download = `${aasIdShort || 'aas'}.aasx`;
     a.click();
     URL.revokeObjectURL(url);
   }, [aasIdShort, aasAssetId, aasDescription, currentModel?.assetKind, submodels]);
@@ -1284,6 +1391,8 @@ export default function AASEditor() {
                     onUpdateSubmodel={updateSubmodel}
                     onUpdateElement={updateElement}
                     onUpdateChild={updateChild}
+                    onOpenElementForm={openElementForm}
+                    onRequestDeleteElement={requestDeleteElement}
                   />
                 ))}
 
@@ -1310,7 +1419,7 @@ export default function AASEditor() {
 
       <ConfirmExportDialog
         open={showExportDialog}
-        fileName={`${aasIdShort || 'aas'}.json`}
+        fileName={`${aasIdShort || 'aas'}.aasx`}
         onClose={() => setShowExportDialog(false)}
         onConfirm={() => { handleExport(); setShowExportDialog(false); }}
       />
@@ -1320,7 +1429,13 @@ export default function AASEditor() {
       <AddEntityDialog open={showAddEntityDialog} onClose={() => setShowAddEntityDialog(false)} onAdd={createModel} onImport={importAas} />
 
       <Dialog open={showDeleteConfirm} onClose={() => setShowDeleteConfirm(false)}>
-        <DialogTitle>{t('editor.deleteAasTitle')}</DialogTitle>
+        <DialogTitle sx={{ display: 'flex', alignItems: 'center' }}>
+          {t('editor.deleteAasTitle')}
+          <Box flexGrow={1} />
+          <IconButton size="small" onClick={() => setShowDeleteConfirm(false)}>
+            <CloseRounded fontSize="small" />
+          </IconButton>
+        </DialogTitle>
         <DialogContent>
           <DialogContentText>
             {t('editor.deleteAasMessage', { name: currentModel?.idShort })}
@@ -1339,7 +1454,13 @@ export default function AASEditor() {
       </Dialog>
 
       <Dialog open={Boolean(submodelToDelete)} onClose={() => setSubmodelToDelete(null)}>
-        <DialogTitle>{t('editor.deleteSmTitle')}</DialogTitle>
+        <DialogTitle sx={{ display: 'flex', alignItems: 'center' }}>
+          {t('editor.deleteSmTitle')}
+          <Box flexGrow={1} />
+          <IconButton size="small" onClick={() => setSubmodelToDelete(null)}>
+            <CloseRounded fontSize="small" />
+          </IconButton>
+        </DialogTitle>
         <DialogContent>
           <DialogContentText>
             {t('editor.deleteSmMessage', {
@@ -1356,6 +1477,45 @@ export default function AASEditor() {
             color="error"
             variant="contained"
             onClick={() => { if (submodelToDelete) removeSubmodel(submodelToDelete.id); setSubmodelToDelete(null); }}
+          >
+            {t('common.buttons.delete')}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Element create/edit form (full structural editor) */}
+      <ElementFormDialog
+        open={Boolean(elementForm)}
+        onClose={() => setElementForm(null)}
+        mode={elementForm?.mode ?? 'create'}
+        initial={elementForm?.mode === 'edit' ? elementForm.initial : undefined}
+        isListItem={elementForm?.isListItem ?? false}
+        onSave={handleElementFormSave}
+      />
+
+      {/* Element delete confirmation */}
+      <Dialog open={Boolean(elementToDelete)} onClose={() => setElementToDelete(null)}>
+        <DialogTitle sx={{ display: 'flex', alignItems: 'center' }}>
+          {t('editor.deleteElementTitle')}
+          <Box flexGrow={1} />
+          <IconButton size="small" onClick={() => setElementToDelete(null)}>
+            <CloseRounded fontSize="small" />
+          </IconButton>
+        </DialogTitle>
+        <DialogContent>
+          <DialogContentText>
+            {t('editor.deleteElementMessage', { name: elementToDelete?.name ?? '' })}
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setElementToDelete(null)}>{t('common.buttons.cancel')}</Button>
+          <Button
+            color="error"
+            variant="contained"
+            onClick={() => {
+              if (elementToDelete) removeElementAt(elementToDelete.smId, elementToDelete.path);
+              setElementToDelete(null);
+            }}
           >
             {t('common.buttons.delete')}
           </Button>

@@ -9,29 +9,41 @@ import {
   Dialog,
   DialogContent,
   DialogTitle,
+  FormControl,
   Grow,
   IconButton,
   InputAdornment,
+  InputLabel,
+  MenuItem,
   Paper,
+  Select,
   Stack,
   Tab,
   Tabs,
   TextField,
+  Tooltip,
   Typography,
 } from '@mui/material';
 import {
   AddRounded,
   CheckRounded,
   CloseRounded,
+  DeleteOutlineRounded,
+  EditRounded,
   ErrorOutlineRounded,
+  SchemaRounded,
   SearchRounded,
   SendRounded,
   SmartToyRounded,
+  WidgetsRounded,
 } from '@mui/icons-material';
 
 import type { AxiosInstance } from 'axios';
-import type { SubmodelTemplate, SubmodelElement, SubmodelElementChild, ElementType, XsdValueType } from '@/context/AASContext';
+import type { SubmodelTemplate, SubmodelElement } from '@/context/AASContext';
 import { useApiManager } from '@/api/apiManger';
+import { extractSemanticId, mapElement } from '@/utils/aas-mapper';
+import { registerTemplate } from '@/utils/template-registry';
+import ElementFormDialog from './ElementFormDialog';
 
 // ── IDTA catalog ─────────────────────────────────────────────────────────────
 
@@ -48,9 +60,15 @@ interface CatalogEntry {
   path: string;
   downloadUrl: string;
   category: string;
+  thumbnailUrl?: string; // template cover from the repo's docs images, when present
 }
 
 let catalogCache: CatalogEntry[] | null = null;
+
+const CUSTOM_CATEGORIES = [
+  'Identification', 'Technical', 'Documentation', 'Maintenance', 'Sustainability',
+  'Structure', 'Operational', 'AI', 'Connectivity', 'Safety', 'Custom',
+];
 
 function deriveCategory(name: string): string {
   const n = name.toLowerCase();
@@ -106,13 +124,32 @@ function parseEntry(path: string): CatalogEntry | null {
 async function fetchCatalog(api: AxiosInstance): Promise<CatalogEntry[]> {
   if (catalogCache) return catalogCache;
 
-  const { data } = await api.get<{ data: string[] }>('/v1/idta/catalog');
-  const paths: string[] = data.data;
+  // v2 payload is { paths, images }; a plain array means an older API.
+  const { data } = await api.get<{ data: string[] | { paths: string[]; images?: string[] } }>('/v1/idta/catalog');
+  const raw = data.data;
+  const paths: string[] = Array.isArray(raw) ? raw : raw?.paths ?? [];
+  const images: string[] = Array.isArray(raw) ? [] : raw?.images ?? [];
+
+  // One cover per version folder: the docs image named like "…cover…"
+  // (e.g. SMT-template-cover.svg), skipping the shared IDTA logos.
+  const coverByDir = new Map<string, string>();
+  for (const img of images) {
+    const docsIdx = img.indexOf('/docs/');
+    if (docsIdx < 0) continue;
+    const name = img.slice(img.lastIndexOf('/') + 1);
+    if (!/cover/i.test(name) || /logo/i.test(name)) continue;
+    const dir = img.slice(0, docsIdx);
+    if (!coverByDir.has(dir)) coverByDir.set(dir, img);
+  }
 
   const entries: CatalogEntry[] = [];
   for (const p of paths) {
     const entry = parseEntry(p);
-    if (entry) entries.push(entry);
+    if (entry) {
+      const cover = coverByDir.get(p.slice(0, p.lastIndexOf('/')));
+      if (cover) entry.thumbnailUrl = RAW_BASE + cover;
+      entries.push(entry);
+    }
   }
 
   entries.sort((a, b) => a.name.localeCompare(b.name) || a.version.localeCompare(b.version));
@@ -120,53 +157,15 @@ async function fetchCatalog(api: AxiosInstance): Promise<CatalogEntry[]> {
   return entries;
 }
 
-// ── AAS JSON → SubmodelTemplate mapper ──────────────────────────────────────
+// ── AAS JSON → SubmodelTemplate (shared mapper: full types + qualifiers) ─────
 
-function extractSemanticId(semanticId: unknown): string {
-  if (!semanticId || typeof semanticId !== 'object') return '';
-  const obj = semanticId as Record<string, unknown>;
-  const keys = (obj.keys ?? obj.Keys) as Array<Record<string, string>> | undefined;
-  return keys?.[0]?.value ?? '';
-}
-
-function mapAasElement(el: unknown): SubmodelElement {
-  const e = el as Record<string, unknown>;
-  const modelType = String(e.modelType ?? '');
-  const base = {
-    idShort: String(e.idShort ?? ''),
-    semanticId: extractSemanticId(e.semanticId),
-    required: false,
-  };
-  // Both containers carry nested elements under `value`. List items have no
-  // idShort (AASd-120), so filter on `modelType`, not `idShort`, and recurse.
-  if (modelType === 'SubmodelElementCollection' || modelType === 'SubmodelElementList') {
-    const raw = (e.value as unknown[]) ?? [];
-    return {
-      ...base,
-      type: modelType as ElementType,
-      children: (Array.isArray(raw) ? raw : [])
-        .filter((c): c is Record<string, unknown> => typeof c === 'object' && c !== null && 'modelType' in c)
-        .map(mapAasElement) as SubmodelElementChild[],
-    };
-  }
-  if (modelType === 'MultiLanguageProperty') return { ...base, type: 'MultiLanguageProperty', value: {} };
-  if (modelType === 'File') return { ...base, type: 'File', contentType: String(e.contentType ?? ''), value: '' };
-  if (modelType === 'Blob') return { ...base, type: 'Blob', contentType: String(e.contentType ?? '') };
-  if (modelType === 'ReferenceElement') return { ...base, type: 'ReferenceElement' };
-  if (modelType === 'Operation') return { ...base, type: 'Operation' };
-  return {
-    ...base,
-    type: 'Property',
-    valueType: (e.valueType as XsdValueType) ?? 'xs:string',
-    value: '',
-  };
-}
-
-function mapAasElements(elements: unknown[]): SubmodelElement[] {
-  return Array.isArray(elements) ? elements.map(mapAasElement) : [];
-}
+// Fetched templates by entry id, so preview + add don't re-download.
+const templateCache = new Map<string, SubmodelTemplate>();
 
 async function fetchSubmodelTemplate(entry: CatalogEntry): Promise<SubmodelTemplate> {
+  const cached = templateCache.get(entry.id);
+  if (cached) return cached;
+
   const res = await fetch(entry.downloadUrl);
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   const json = await res.json() as Record<string, unknown>;
@@ -177,9 +176,9 @@ async function fetchSubmodelTemplate(entry: CatalogEntry): Promise<SubmodelTempl
 
   const semanticId =
     extractSemanticId(submodel.semanticId) || String(submodel.id ?? entry.downloadUrl);
-  const elements = mapAasElements((submodel.submodelElements as unknown[]) ?? []);
+  const elements = (Array.isArray(submodel.submodelElements) ? submodel.submodelElements : []).map(mapElement);
 
-  return {
+  const template: SubmodelTemplate = {
     id: semanticId,
     idShort: String(submodel.idShort ?? entry.name),
     semanticId,
@@ -187,6 +186,46 @@ async function fetchSubmodelTemplate(entry: CatalogEntry): Promise<SubmodelTempl
     category: entry.category,
     elements,
   };
+  templateCache.set(entry.id, template);
+  // Feed the validation registry: mandatory template elements can now be
+  // cross-checked against working copies with the same semanticId.
+  registerTemplate(template);
+  return template;
+}
+
+function countElements(els: SubmodelElement[] | undefined): number {
+  if (!els?.length) return 0;
+  return els.reduce((n, e) => n + 1 + countElements(e.children), 0);
+}
+
+// Compact recursive structure preview for a template.
+function TemplateTree({ els, depth }: { els: SubmodelElement[]; depth: number }) {
+  return (
+    <>
+      {els.map((e, i) => (
+        <Box key={i} sx={{ pl: depth * 1.5 }}>
+          <Stack direction="row" spacing={0.75} alignItems="center" sx={{ py: 0.2, minWidth: 0 }}>
+            <Box sx={{
+              width: 5, height: 5, borderRadius: '50%', flexShrink: 0,
+              bgcolor: e.children?.length ? 'warning.main' : 'primary.main',
+            }} />
+            <Typography variant="caption" fontFamily="monospace" noWrap>
+              {e.idShort || `[${i}]`}
+            </Typography>
+            {e.required && (
+              <Typography variant="caption" color="error.main" fontWeight={700} sx={{ fontSize: 9, flexShrink: 0 }}>
+                REQ
+              </Typography>
+            )}
+            <Typography variant="caption" color="text.disabled" noWrap sx={{ fontSize: 9 }}>
+              {e.type}
+            </Typography>
+          </Stack>
+          {e.children?.length ? <TemplateTree els={e.children} depth={depth + 1} /> : null}
+        </Box>
+      ))}
+    </>
+  );
 }
 
 // ── Chatbot ──────────────────────────────────────────────────────────────────
@@ -235,7 +274,9 @@ export default function AddSubmodelDialog({ open, onClose, onAdd }: AddSubmodelD
   const [onlyTemplates, setOnlyTemplates] = useState(true);
   const [metamodelFilter, setMetamodelFilter] = useState<string>('All');
   const [selected, setSelected] = useState<string | null>(null);
-  const [custom, setCustom] = useState({ idShort: '', semanticId: '', description: '' });
+  const [custom, setCustom] = useState({ idShort: '', semanticId: '', description: '', category: 'Custom' });
+  const [customElements, setCustomElements] = useState<SubmodelElement[]>([]);
+  const [elementForm, setElementForm] = useState<{ mode: 'create' } | { mode: 'edit'; index: number } | null>(null);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>(() => [
     { role: 'bot', text: t('addSubmodel.chat.default') },
   ]);
@@ -245,6 +286,25 @@ export default function AddSubmodelDialog({ open, onClose, onAdd }: AddSubmodelD
   const [catalogLoading, setCatalogLoading] = useState(false);
   const [catalogError, setCatalogError] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
+
+  // Structure preview of the selected catalog entry (lazy fetch, cached).
+  const [previewTpl, setPreviewTpl] = useState<SubmodelTemplate | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewError, setPreviewError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!selected) { setPreviewTpl(null); setPreviewError(null); return; }
+    const entry = catalog.find(e => e.id === selected);
+    if (!entry) return;
+    let stale = false;
+    setPreviewLoading(true);
+    setPreviewError(null);
+    fetchSubmodelTemplate(entry)
+      .then(tpl => { if (!stale) setPreviewTpl(tpl); })
+      .catch((e: Error) => { if (!stale) { setPreviewTpl(null); setPreviewError(e.message); } })
+      .finally(() => { if (!stale) setPreviewLoading(false); });
+    return () => { stale = true; };
+  }, [selected, catalog]);
 
   useEffect(() => {
     if (!open) return;
@@ -287,7 +347,11 @@ export default function AddSubmodelDialog({ open, onClose, onAdd }: AddSubmodelD
     setOnlyTemplates(true);
     setMetamodelFilter('All');
     setSelected(null);
-    setCustom({ idShort: '', semanticId: '', description: '' });
+    setCustom({ idShort: '', semanticId: '', description: '', category: 'Custom' });
+    setCustomElements([]);
+    setElementForm(null);
+    setPreviewTpl(null);
+    setPreviewError(null);
     setChatMessages([{ role: 'bot', text: t('addSubmodel.chat.default') }]);
     setChatInput('');
   };
@@ -327,8 +391,8 @@ export default function AddSubmodelDialog({ open, onClose, onAdd }: AddSubmodelD
         idShort: custom.idShort,
         semanticId: custom.semanticId || `urn:custom:${custom.idShort}:1:0`,
         description: custom.description,
-        category: 'Custom',
-        elements: [],
+        category: custom.category,
+        elements: customElements,
       });
       handleClose();
     }
@@ -492,43 +556,70 @@ export default function AddSubmodelDialog({ open, onClose, onAdd }: AddSubmodelD
                       '&:hover': { borderColor: 'primary.light' },
                     }}
                   >
-                    <Stack direction="row" justifyContent="space-between" alignItems="flex-start">
-                      <Stack direction="row" spacing={0.75} alignItems="center" flexWrap="wrap">
-                        <Typography variant="subtitle2">{entry.name}</Typography>
-                        <Chip
-                          label={`v${entry.version}`}
-                          size="small"
-                          color="primary"
-                          variant="outlined"
-                          sx={{ fontFamily: 'monospace', fontSize: 9 }}
-                        />
-                        <Chip
-                          label={`AAS ${entry.metamodel}`}
-                          size="small"
-                          color={entry.metamodel === '3.0' ? 'default' : 'secondary'}
-                          variant="outlined"
-                          sx={{ fontFamily: 'monospace', fontSize: 9 }}
-                        />
-                        {entry.fileType !== 'Template' && (
-                          <Chip
-                            label={entry.fileType}
-                            size="small"
-                            variant="outlined"
-                            sx={{ fontSize: 9 }}
+                    <Stack direction="row" spacing={1.5} alignItems="flex-start">
+                      {/* Template cover from the IDTA repo docs, when available */}
+                      <Box
+                        sx={{
+                          width: 44, height: 44, borderRadius: 1, flexShrink: 0,
+                          bgcolor: 'action.hover', overflow: 'hidden',
+                          display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        }}
+                      >
+                        {entry.thumbnailUrl ? (
+                          <Box
+                            component="img"
+                            src={entry.thumbnailUrl}
+                            alt=""
+                            loading="lazy"
+                            onError={(e: React.SyntheticEvent<HTMLImageElement>) => {
+                              e.currentTarget.style.display = 'none';
+                            }}
+                            sx={{ width: '100%', height: '100%', objectFit: 'cover' }}
                           />
+                        ) : (
+                          <WidgetsRounded sx={{ fontSize: 20, color: 'text.disabled' }} />
                         )}
-                      </Stack>
-                      {selected === entry.id && <CheckRounded color="primary" fontSize="small" />}
+                      </Box>
+                      <Box flex={1} minWidth={0}>
+                        <Stack direction="row" justifyContent="space-between" alignItems="flex-start">
+                          <Stack direction="row" spacing={0.75} alignItems="center" flexWrap="wrap">
+                            <Typography variant="subtitle2">{entry.name}</Typography>
+                            <Chip
+                              label={`v${entry.version}`}
+                              size="small"
+                              color="primary"
+                              variant="outlined"
+                              sx={{ fontFamily: 'monospace', fontSize: 9 }}
+                            />
+                            <Chip
+                              label={`AAS ${entry.metamodel}`}
+                              size="small"
+                              color={entry.metamodel === '3.0' ? 'default' : 'secondary'}
+                              variant="outlined"
+                              sx={{ fontFamily: 'monospace', fontSize: 9 }}
+                            />
+                            {entry.fileType !== 'Template' && (
+                              <Chip
+                                label={entry.fileType}
+                                size="small"
+                                variant="outlined"
+                                sx={{ fontSize: 9 }}
+                              />
+                            )}
+                          </Stack>
+                          {selected === entry.id && <CheckRounded color="primary" fontSize="small" />}
+                        </Stack>
+                        <Typography
+                          variant="caption"
+                          color="text.disabled"
+                          display="block"
+                          mt={0.5}
+                          fontFamily="monospace"
+                        >
+                          {entry.idtaCode && `${entry.idtaCode} · `}{entry.category}
+                        </Typography>
+                      </Box>
                     </Stack>
-                    <Typography
-                      variant="caption"
-                      color="text.disabled"
-                      display="block"
-                      mt={0.5}
-                      fontFamily="monospace"
-                    >
-                      {entry.idtaCode && `${entry.idtaCode} · `}{entry.category}
-                    </Typography>
                   </Paper>
                 ))}
 
@@ -540,16 +631,29 @@ export default function AddSubmodelDialog({ open, onClose, onAdd }: AddSubmodelD
               </Box>
             </>
           ) : (
-            <Stack gap={2} p={2} flex={1}>
-              <TextField
-                label="idShort *"
-                size="small"
-                fullWidth
-                value={custom.idShort}
-                placeholder="MyCustomSubmodel"
-                onChange={e => setCustom(p => ({ ...p, idShort: e.target.value }))}
-                slotProps={{ input: { sx: { fontFamily: 'monospace' } } }}
-              />
+            <Stack gap={2} p={2} flex={1} overflow="auto">
+              <Stack direction="row" spacing={1.5}>
+                <TextField
+                  label="idShort *"
+                  size="small"
+                  sx={{ flex: 1 }}
+                  value={custom.idShort}
+                  placeholder="MyCustomSubmodel"
+                  onChange={e => setCustom(p => ({ ...p, idShort: e.target.value }))}
+                  slotProps={{ input: { sx: { fontFamily: 'monospace' } } }}
+                />
+                <FormControl size="small" sx={{ width: 180 }}>
+                  <InputLabel id="asd-cat-label">{t('addSubmodel.categoryLabel')}</InputLabel>
+                  <Select
+                    labelId="asd-cat-label"
+                    value={custom.category}
+                    label={t('addSubmodel.categoryLabel')}
+                    onChange={e => setCustom(p => ({ ...p, category: e.target.value }))}
+                  >
+                    {CUSTOM_CATEGORIES.map(c => <MenuItem key={c} value={c}>{c}</MenuItem>)}
+                  </Select>
+                </FormControl>
+              </Stack>
               <TextField
                 label="semanticId"
                 size="small"
@@ -564,10 +668,55 @@ export default function AddSubmodelDialog({ open, onClose, onAdd }: AddSubmodelD
                 size="small"
                 fullWidth
                 multiline
-                rows={3}
+                rows={2}
                 value={custom.description}
                 onChange={e => setCustom(p => ({ ...p, description: e.target.value }))}
               />
+
+              {/* Initial structure: full element builder (same form as the editor) */}
+              <Box>
+                <Stack direction="row" alignItems="center" spacing={1} mb={0.75}>
+                  <Typography variant="overline" color="text.disabled" flex={1}>
+                    {t('addSubmodel.customElements')}
+                  </Typography>
+                  <Button size="small" startIcon={<AddRounded />} onClick={() => setElementForm({ mode: 'create' })}>
+                    {t('addSubmodel.addElementBtn')}
+                  </Button>
+                </Stack>
+                {customElements.length === 0 ? (
+                  <Typography variant="caption" color="text.disabled">
+                    {t('addSubmodel.noCustomElements')}
+                  </Typography>
+                ) : (
+                  <Paper variant="outlined" sx={{ maxHeight: 260, overflow: 'auto' }}>
+                    {customElements.map((el, i) => (
+                      <Stack key={i} direction="row" alignItems="center" spacing={1}
+                        sx={{ px: 1.5, py: 0.5, borderBottom: i < customElements.length - 1 ? 1 : 0, borderColor: 'divider' }}>
+                        <Typography variant="caption" fontFamily="monospace" fontWeight={600} noWrap>
+                          {el.idShort}
+                        </Typography>
+                        {el.required && (
+                          <Typography variant="caption" color="error.main" fontWeight={700} sx={{ fontSize: 9 }}>REQ</Typography>
+                        )}
+                        <Typography variant="caption" color="text.disabled" fontFamily="monospace" noWrap flex={1}>
+                          {el.type}{el.children?.length ? ` · ${t('addSubmodel.childCount', { count: countElements(el.children) })}` : ''}
+                        </Typography>
+                        <Tooltip title={t('editor.editElement')}>
+                          <IconButton size="small" sx={{ p: 0.25, color: 'primary.main' }} onClick={() => setElementForm({ mode: 'edit', index: i })}>
+                            <EditRounded sx={{ fontSize: 13 }} />
+                          </IconButton>
+                        </Tooltip>
+                        <Tooltip title={t('editor.deleteElement')}>
+                          <IconButton size="small" sx={{ p: 0.25, color: 'error.main' }}
+                            onClick={() => setCustomElements(prev => prev.filter((_, x) => x !== i))}>
+                            <DeleteOutlineRounded sx={{ fontSize: 13 }} />
+                          </IconButton>
+                        </Tooltip>
+                      </Stack>
+                    ))}
+                  </Paper>
+                )}
+              </Box>
             </Stack>
           )}
 
@@ -593,7 +742,7 @@ export default function AddSubmodelDialog({ open, onClose, onAdd }: AddSubmodelD
           </Stack>
         </Box>
 
-        {/* ── CHATBOT ── */}
+        {/* ── RIGHT PANEL: template preview when selected, assistant otherwise ── */}
         <Box
           sx={{
             width: 340,
@@ -604,6 +753,56 @@ export default function AddSubmodelDialog({ open, onClose, onAdd }: AddSubmodelD
             flexShrink: 0,
           }}
         >
+          {tab === 'catalog' && selected ? (() => {
+            const selEntry = catalog.find(e => e.id === selected);
+            return (
+              <>
+                <Stack direction="row" spacing={1} alignItems="center" p={1.75}
+                  sx={{ borderBottom: 1, borderColor: 'divider' }}>
+                  <SchemaRounded color="primary" fontSize="small" />
+                  <Box minWidth={0} flex={1}>
+                    <Typography variant="subtitle2" noWrap lineHeight={1.2}>{selEntry?.name}</Typography>
+                    <Typography variant="caption" color="text.disabled" fontFamily="monospace" noWrap display="block">
+                      {selEntry?.idtaCode ? `${selEntry.idtaCode} · ` : ''}v{selEntry?.version} · AAS {selEntry?.metamodel}
+                    </Typography>
+                  </Box>
+                </Stack>
+                {selEntry?.thumbnailUrl && (
+                  <Box
+                    component="img"
+                    src={selEntry.thumbnailUrl}
+                    alt=""
+                    loading="lazy"
+                    onError={(e: React.SyntheticEvent<HTMLImageElement>) => { e.currentTarget.style.display = 'none'; }}
+                    sx={{ width: '100%', maxHeight: 130, objectFit: 'cover', borderBottom: 1, borderColor: 'divider' }}
+                  />
+                )}
+                <Box flex={1} overflow="auto" p={1.5}>
+                  {previewLoading && (
+                    <Stack alignItems="center" py={3} spacing={1}>
+                      <CircularProgress size={22} />
+                      <Typography variant="caption" color="text.secondary">{t('addSubmodel.previewLoading')}</Typography>
+                    </Stack>
+                  )}
+                  {previewError && !previewLoading && (
+                    <Typography variant="caption" color="error">{previewError}</Typography>
+                  )}
+                  {previewTpl && !previewLoading && (
+                    <>
+                      <Typography variant="overline" color="text.disabled" display="block">
+                        {t('addSubmodel.previewTitle')}
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary" display="block" mb={0.75} fontFamily="monospace">
+                        {previewTpl.idShort} · {t('addSubmodel.previewCount', { count: countElements(previewTpl.elements) })}
+                      </Typography>
+                      <TemplateTree els={previewTpl.elements} depth={0} />
+                    </>
+                  )}
+                </Box>
+              </>
+            );
+          })() : (
+          <>
           <Stack
             direction="row"
             spacing={1}
@@ -668,8 +867,24 @@ export default function AddSubmodelDialog({ open, onClose, onAdd }: AddSubmodelD
               <SendRounded />
             </IconButton>
           </Stack>
+          </>
+          )}
         </Box>
       </DialogContent>
+
+      {/* Nested element builder for the Custom tab (same form as the editor) */}
+      <ElementFormDialog
+        open={Boolean(elementForm)}
+        onClose={() => setElementForm(null)}
+        mode={elementForm?.mode ?? 'create'}
+        initial={elementForm?.mode === 'edit' ? customElements[elementForm.index] : undefined}
+        onSave={(el) => {
+          setCustomElements(prev =>
+            elementForm?.mode === 'edit'
+              ? prev.map((x, i) => (i === elementForm.index ? el : x))
+              : [...prev, el]);
+        }}
+      />
     </Dialog>
   );
 }

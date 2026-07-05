@@ -4,6 +4,7 @@ import { CustomSnackbarProvider } from '@/context/SnackbarContext';
 import { OperatorPreferencesProvider } from '@/context/OperatorPreferencesContext';
 import { NotificationProvider } from '@/context/NotificationContext';
 import { AASProvider } from '@/context/AASContext';
+import { GatewayProvider } from '@/context/GatewayContext';
 
 import Router from '@/routes/Router';
 import '@/i18n/config';
@@ -15,9 +16,11 @@ const App = () => {
         <CustomSnackbarProvider>
           <NotificationProvider>
             <AASProvider>
+            <GatewayProvider>
             <BrowserRouter>
               <Router />
             </BrowserRouter>
+            </GatewayProvider>
             </AASProvider>
           </NotificationProvider>
         </CustomSnackbarProvider>

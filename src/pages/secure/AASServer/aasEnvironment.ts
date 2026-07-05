@@ -27,24 +27,59 @@ function elementToJson(el: SubmodelElement | SubmodelElementChild): Record<strin
       keys: [{ type: 'GlobalReference', value: el.semanticId }],
     };
   }
+  const extRef = (value: string) => ({
+    type: 'ExternalReference',
+    keys: [{ type: 'GlobalReference', value }],
+  });
+  const modelRef = (value: string) => ({
+    type: 'ModelReference',
+    keys: [{ type: 'Submodel', value }],
+  });
+
   if (el.type === 'Property') {
     if (el.valueType) out.valueType = el.valueType;
     out.value = '';
   } else if (el.type === 'MultiLanguageProperty') {
     out.value = [{ language: 'en', text: '' }];
+  } else if (el.type === 'Range') {
+    out.valueType = el.valueType ?? 'xs:double';
+    if (el.min) out.min = el.min;
+    if (el.max) out.max = el.max;
   } else if (el.type === 'SubmodelElementCollection') {
-    const smEl = el as SubmodelElement;
-    out.value = (smEl.children ?? []).map(c => elementToJson(c));
+    out.value = (el.children ?? []).map(c => elementToJson(c));
+  } else if (el.type === 'SubmodelElementList') {
+    const items = (el.children ?? []).map(c => {
+      const { idShort: _drop, ...rest } = elementToJson(c);
+      return rest;
+    });
+    out.typeValueListElement = (el.children?.[0]?.type as string) ?? 'Property';
+    out.value = items;
   } else if (el.type === 'Operation') {
-    out.inputVariables = [];
-    out.outputVariables = [];
-    out.inoutputVariables = [];
+    out.inputVariables = (el.inputVariables ?? []).map(v => ({ value: elementToJson(v) }));
+    out.outputVariables = (el.outputVariables ?? []).map(v => ({ value: elementToJson(v) }));
+    out.inoutputVariables = (el.inoutputVariables ?? []).map(v => ({ value: elementToJson(v) }));
   } else if (el.type === 'File' || el.type === 'Blob') {
-    out.contentType = ('contentType' in el && el.contentType) ? el.contentType : 'application/octet-stream';
-    out.value = '';
+    out.contentType = el.contentType || 'application/octet-stream';
+    if (el.type === 'File') out.value = typeof el.value === 'string' ? el.value : '';
   } else if (el.type === 'ReferenceElement') {
-    out.value = null;
+    out.value = typeof el.value === 'string' && el.value ? extRef(el.value) : null;
+  } else if (el.type === 'RelationshipElement' || el.type === 'AnnotatedRelationshipElement') {
+    out.first = extRef(el.first ?? '');
+    out.second = extRef(el.second ?? '');
+    if (el.type === 'AnnotatedRelationshipElement') {
+      out.annotations = (el.annotations ?? []).map(a => elementToJson(a));
+    }
+  } else if (el.type === 'Entity') {
+    out.entityType = el.entityType ?? 'SelfManagedEntity';
+    if (el.entityType !== 'CoManagedEntity' && el.globalAssetId) out.globalAssetId = el.globalAssetId;
+    out.statements = (el.statements ?? []).map(s => elementToJson(s));
+  } else if (el.type === 'BasicEventElement') {
+    out.observed = modelRef(el.observed ?? '');
+    out.direction = el.direction ?? 'output';
+    out.state = el.state ?? 'on';
+    if (el.messageTopic) out.messageTopic = el.messageTopic;
   }
+  // Capability: modelType + idShort are all it needs.
   return out;
 }
 

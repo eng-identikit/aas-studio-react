@@ -1,5 +1,5 @@
-import { Dialog, DialogTitle, DialogContent, DialogActions, Button, Typography, Box, Grow } from '@mui/material';
-import { DeleteRounded, WarningRounded } from '@mui/icons-material';
+import { Dialog, DialogTitle, DialogContent, DialogActions, Button, IconButton, Typography, Box, Grow } from '@mui/material';
+import { CloseRounded, DeleteRounded, WarningRounded } from '@mui/icons-material';
 import { useTranslation } from 'react-i18next';
 
 interface ConfirmDeleteReferralDialogProps {
@@ -26,6 +26,10 @@ export default function ConfirmDeleteReferralDialog({ open, email, onConfirm, on
         <Typography variant="h6" fontWeight={700}>
           {t('main.dialogs.referrals.confirmDelete.title')}
         </Typography>
+        <Box flexGrow={1} />
+        <IconButton size="small" onClick={onClose}>
+          <CloseRounded fontSize="small" />
+        </IconButton>
       </DialogTitle>
 
       <DialogContent>

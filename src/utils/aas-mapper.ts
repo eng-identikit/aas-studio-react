@@ -9,9 +9,9 @@
 import type {
   AASModel,
   AssetKind,
+  ElementQualifier,
   ElementType,
   SubmodelElement,
-  SubmodelElementChild,
   SubmodelTemplate,
   XsdValueType,
 } from '@/context/AASContext';
@@ -21,12 +21,18 @@ type Json = Record<string, unknown>;
 const ELEMENT_TYPES: ReadonlySet<string> = new Set<ElementType>([
   'Property',
   'MultiLanguageProperty',
-  'SubmodelElementCollection',
-  'SubmodelElementList',
-  'Operation',
+  'Range',
   'File',
   'Blob',
   'ReferenceElement',
+  'RelationshipElement',
+  'AnnotatedRelationshipElement',
+  'Entity',
+  'Operation',
+  'Capability',
+  'BasicEventElement',
+  'SubmodelElementCollection',
+  'SubmodelElementList',
 ]);
 
 function asElementType(modelType: unknown): ElementType {
@@ -65,51 +71,74 @@ function mapMlpValue(value: unknown): Record<string, string> {
   return out;
 }
 
-function mapChild(el: Json): SubmodelElementChild {
-  const type = asElementType(el.modelType);
-  const base = {
-    idShort: String(el.idShort ?? ''),
-    type,
-    valueType: el.valueType as XsdValueType | undefined,
-    semanticId: extractSemanticId(el.semanticId),
-    required: false,
-  };
-  if (type === 'SubmodelElementCollection' || type === 'SubmodelElementList') {
-    return {
-      ...base,
-      children: (Array.isArray(el.value) ? el.value : [])
-        .filter((c): c is Json => !!c && typeof c === 'object' && 'modelType' in (c as Json))
-        .map((c) => mapChild(c as Json)),
-    };
+/** Qualifier values that make an element mandatory per SMT cardinality. */
+const REQUIRED_CARDINALITIES = new Set(['One', 'OneToMany']);
+
+function mapQualifiers(raw: unknown): ElementQualifier[] | undefined {
+  if (!Array.isArray(raw) || raw.length === 0) return undefined;
+  const out: ElementQualifier[] = [];
+  for (const q of raw) {
+    if (!q || typeof q !== 'object') continue;
+    const j = q as Json;
+    out.push({
+      type: String(j.type ?? ''),
+      valueType: j.valueType as XsdValueType | undefined,
+      value: j.value != null ? String(j.value) : undefined,
+      kind: j.kind as ElementQualifier['kind'],
+    });
   }
-  return {
-    ...base,
-    value: el.value != null && typeof el.value !== 'object' ? String(el.value) : undefined,
-  };
+  return out.length ? out : undefined;
+}
+
+function isRequired(qualifiers: ElementQualifier[] | undefined): boolean {
+  return !!qualifiers?.some(
+    (q) => /cardinality|multiplicity/i.test(q.type) && REQUIRED_CARDINALITIES.has(q.value ?? ''),
+  );
+}
+
+function mapNested(list: unknown): SubmodelElement[] {
+  return (Array.isArray(list) ? list : [])
+    .filter((c): c is Json => !!c && typeof c === 'object' && 'modelType' in (c as Json))
+    .map(mapElement);
+}
+
+/** Operation variables come wrapped: [{ value: <element> }]. */
+function mapOperationVars(list: unknown): SubmodelElement[] | undefined {
+  if (!Array.isArray(list) || list.length === 0) return undefined;
+  const els = list
+    .map((v) => (v && typeof v === 'object' ? (v as Json).value : undefined))
+    .filter((c): c is Json => !!c && typeof c === 'object');
+  return els.length ? els.map(mapElement) : undefined;
 }
 
 export function mapElement(raw: unknown): SubmodelElement {
   const el = (raw ?? {}) as Json;
   const type = asElementType(el.modelType);
-  const base = {
+  const qualifiers = mapQualifiers(el.qualifiers);
+  const base: SubmodelElement = {
     idShort: String(el.idShort ?? ''),
     type,
     semanticId: extractSemanticId(el.semanticId),
-    required: false,
+    required: isRequired(qualifiers),
   };
+  const description = extractDescription(el.description);
+  if (description) base.description = description;
+  if (qualifiers) base.qualifiers = qualifiers;
 
   switch (type) {
     case 'MultiLanguageProperty':
       return { ...base, value: mapMlpValue(el.value) };
+    case 'Range':
+      return {
+        ...base,
+        valueType: (el.valueType as XsdValueType) ?? 'xs:double',
+        min: el.min != null ? String(el.min) : '',
+        max: el.max != null ? String(el.max) : '',
+      };
     case 'SubmodelElementCollection':
     case 'SubmodelElementList':
       // List items may be unnamed (no idShort); still map them as children.
-      return {
-        ...base,
-        children: (Array.isArray(el.value) ? el.value : [])
-          .filter((c): c is Json => !!c && typeof c === 'object' && 'modelType' in (c as Json))
-          .map(mapChild),
-      };
+      return { ...base, children: mapNested(el.value) };
     case 'File':
     case 'Blob':
       return {
@@ -117,9 +146,42 @@ export function mapElement(raw: unknown): SubmodelElement {
         contentType: el.contentType != null ? String(el.contentType) : 'application/octet-stream',
         value: typeof el.value === 'string' ? el.value : '',
       };
-    case 'Operation':
     case 'ReferenceElement':
+      return { ...base, value: extractSemanticId(el.value) };
+    case 'RelationshipElement':
+    case 'AnnotatedRelationshipElement': {
+      const rel: SubmodelElement = {
+        ...base,
+        first: extractSemanticId(el.first),
+        second: extractSemanticId(el.second),
+      };
+      if (type === 'AnnotatedRelationshipElement') rel.annotations = mapNested(el.annotations);
+      return rel;
+    }
+    case 'Entity':
+      return {
+        ...base,
+        entityType: (el.entityType as SubmodelElement['entityType']) ?? 'SelfManagedEntity',
+        globalAssetId: el.globalAssetId != null ? String(el.globalAssetId) : undefined,
+        statements: mapNested(el.statements),
+      };
+    case 'Operation':
+      return {
+        ...base,
+        inputVariables: mapOperationVars(el.inputVariables),
+        outputVariables: mapOperationVars(el.outputVariables),
+        inoutputVariables: mapOperationVars(el.inoutputVariables),
+      };
+    case 'Capability':
       return base;
+    case 'BasicEventElement':
+      return {
+        ...base,
+        observed: extractSemanticId(el.observed),
+        direction: (el.direction as SubmodelElement['direction']) ?? 'output',
+        state: (el.state as SubmodelElement['state']) ?? 'on',
+        messageTopic: el.messageTopic != null ? String(el.messageTopic) : undefined,
+      };
     default:
       return {
         ...base,
