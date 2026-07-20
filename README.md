@@ -33,8 +33,8 @@ AAS Studio is a **three-module platform** — this repository contains the front
 | Module | Role | Default port |
 |---|---|---|
 | **aas-studio-react** (this repo) | Web IDE — editor, lifecycle, gateway, server generator | `5173` (dev) |
-| **[aas-studio-api](../aas-studio-api/README.md)** | REST backend — JWT authentication, sessions, git-like AAS versioning on MariaDB, IDTA template catalog, proxy to the runner | `9010` |
-| **[aas-server-runner](../aas-server-runner/README.md)** | Python microservice that instantiates on-demand, IDTA-compliant **debug AAS servers** from the UI | `6790` (control) · `6789` (debug server) |
+| **[aas-studio-api](https://github.com/eng-identikit/aas-studio-api/blob/main/README.md)** | REST backend — JWT authentication, sessions, git-like AAS versioning on MariaDB, IDTA template catalog, proxy to the runner | `9010` |
+| **[aas-server-runner](https://github.com/eng-identikit/aas-server-runner/blob/main/README.md)** | Python microservice that instantiates on-demand, IDTA-compliant **debug AAS servers** from the UI | `6790` (control) · `6789` (debug server) |
 
 - **`aas-studio-api` is required to run the frontend.** Sign-in, sessions, and every editor/lifecycle operation go through its REST API (`VITE_API_URL`, default `http://localhost:9010/api`). Without it, the frontend cannot get past the login page.
 - **`aas-server-runner` is required to instantiate AAS servers from the interface** — the "Run Server" feature of the Server section. The frontend calls `/v1/runner/*` on the API, which proxies the runner's control API to spawn a live AAS server (port `6789`) loaded with the current model. All other sections work without it.
@@ -89,8 +89,8 @@ Generate a **production-ready FastAPI server** from your AAS model in seconds:
 ### Prerequisites
 - Node.js ≥ 18
 - npm ≥ 9
-- **[aas-studio-api](../aas-studio-api/README.md) up and running** on `http://localhost:9010` (needs MariaDB + Redis) — required
-- [aas-server-runner](../aas-server-runner/README.md) on `http://localhost:6790` — required only for the "Run Server" feature
+- **[aas-studio-api](https://github.com/eng-identikit/aas-studio-api/blob/main/README.md) up and running** on `http://localhost:9010` (needs MariaDB + Redis) — required
+- [aas-server-runner](https://github.com/eng-identikit/aas-server-runner/blob/main/README.md) on `http://localhost:6790` — required only for the "Run Server" feature
 
 ### Installation
 
