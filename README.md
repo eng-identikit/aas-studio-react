@@ -1,8 +1,9 @@
 <div align="center">
 
-<img src="public/vite.svg" width="72" alt="AAS Studio logo" />
-
-# AAS Studio
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="public/logo_white.png">
+  <img src="public/logo_dark.png" width="420" alt="AAS Studio" />
+</picture>
 
 **A modern web IDE for designing, versioning, and deploying Asset Administration Shells**
 
@@ -11,7 +12,7 @@
 [![MUI](https://img.shields.io/badge/MUI-7-007FFF?logo=mui&logoColor=white)](https://mui.com)
 [![Vite](https://img.shields.io/badge/Vite-6-646CFF?logo=vite&logoColor=white)](https://vite.dev)
 [![IDTA](https://img.shields.io/badge/IDTA-01002--3--0-10b981)](https://industrialdigitaltwin.org)
-[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
+[![License](https://img.shields.io/badge/License-GPL%20v3-blue.svg)](LICENSE)
 
 </div>
 
@@ -22,6 +23,21 @@
 The **Asset Administration Shell (AAS)** is the standardized digital representation of an asset — a machine, component, or system — defined by the [Industrial Digital Twin Association (IDTA)](https://industrialdigitaltwin.org). It acts as the passport of a physical or digital asset inside an Industry 4.0 ecosystem, carrying all its data, structure, and semantics in a machine-readable, interoperable format.
 
 AAS Studio is a purpose-built front-end for creating and managing AAS models without writing a single line of JSON or AASX by hand.
+
+---
+
+## Architecture
+
+AAS Studio is a **three-module platform** — this repository contains the frontend only. To run it properly you also need the two companion modules:
+
+| Module | Role | Default port |
+|---|---|---|
+| **aas-studio-react** (this repo) | Web IDE — editor, lifecycle, gateway, server generator | `5173` (dev) |
+| **[aas-studio-api](../aas-studio-api/README.md)** | REST backend — JWT authentication, sessions, git-like AAS versioning on MariaDB, IDTA template catalog, proxy to the runner | `9010` |
+| **[aas-server-runner](../aas-server-runner/README.md)** | Python microservice that instantiates on-demand, IDTA-compliant **debug AAS servers** from the UI | `6790` (control) · `6789` (debug server) |
+
+- **`aas-studio-api` is required to run the frontend.** Sign-in, sessions, and every editor/lifecycle operation go through its REST API (`VITE_API_URL`, default `http://localhost:9010/api`). Without it, the frontend cannot get past the login page.
+- **`aas-server-runner` is required to instantiate AAS servers from the interface** — the "Run Server" feature of the Server section. The frontend calls `/v1/runner/*` on the API, which proxies the runner's control API to spawn a live AAS server (port `6789`) loaded with the current model. All other sections work without it.
 
 ---
 
@@ -73,6 +89,8 @@ Generate a **production-ready FastAPI server** from your AAS model in seconds:
 ### Prerequisites
 - Node.js ≥ 18
 - npm ≥ 9
+- **[aas-studio-api](../aas-studio-api/README.md) up and running** on `http://localhost:9010` (needs MariaDB + Redis) — required
+- [aas-server-runner](../aas-server-runner/README.md) on `http://localhost:6790` — required only for the "Run Server" feature
 
 ### Installation
 
@@ -111,8 +129,10 @@ src/
 │   ├── public/       # Sign-in page
 │   └── secure/
 │       ├── AASEditor/     # Shell designer + graph view
+│       ├── AASGateway/    # Connect to live AAS servers (debug or remote)
 │       ├── AASLifecycle/  # Version timeline
-│       ├── AASServer/     # Server code generator
+│       ├── AASServer/     # Server code generator + Run Server (via aas-server-runner)
+│       ├── Dashboard/     # Overview & quick actions
 │       └── Main/          # App shell (sidebar, header, theme)
 ├── routes/           # Protected routes & router
 ├── theme/            # MUI theme primitives & customizations
@@ -138,7 +158,7 @@ Pull requests are welcome. For major changes, please open an issue first to disc
 
 ## License
 
-Distributed under the Apache License 2.0. See [LICENSE](LICENSE) for more information.
+Distributed under the GNU General Public License v3.0. See [LICENSE](LICENSE) for more information.
 
 ---
 
